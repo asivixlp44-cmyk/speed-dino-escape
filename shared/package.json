@@ -1,0 +1,5 @@
+{
+  "name": "sde-shared",
+  "private": true,
+  "type": "module"
+}
