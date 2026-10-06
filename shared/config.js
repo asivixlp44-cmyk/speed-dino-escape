@@ -1,5 +1,5 @@
 // Game data shared by the client and the Colyseus server.
-// Speed Dino Escape: ride your dino, every step is +1 Speed, escape the T-Rex.
+// Speed Dino Escape: ride your dino, every step is +1 Speed, dodge the giant troll balls.
 
 export const CFG = {
     maxLevel: 40,
@@ -17,10 +17,9 @@ export const CFG = {
     endZone: 36,
     pickupRespawn: 10,
     maxPickupsPerStage: 40,
-    // Stage 1 spike traps: seconds hidden, warning, up
-    spikes: { hidden: 2.2, warn: 0.6, up: 1.4 },
-    // Stage 4 meteors: shadow warning, fall, burning on the ground
-    meteor: { warn: 1.4, fall: 0.35, burn: 0.5, every: 2.6 },
+    // Race event ("Race starting in 20s! JOIN"): one every `every` seconds on the server clock.
+    // Racers start together at the Stage 1 gate; the first to touch the Stage 1 Wins pad wins.
+    race: { every: 300, countdown: 20, prizeWins: 5, maxTime: 120 },
     boostMult: 2,
     boostMinutes: 15,
     reviveTimeout: 10,
@@ -48,18 +47,19 @@ export const maxSpeedFor = (L, R) => Math.max(CFG.minWalk, CFG.minWalk + (L || 0
 
 export const LOBBY = { halfX: 85, halfZ: 70, wallHeight: 30, spawn: { x: 0, y: 0.5, z: -40 } };
 
-// The course runs along +z from the lobby gate. Stages 1-3 follow the reference video
-// (red carpet run, green grass steps, grey ramps with the chaser); 4-6 are our own, same style.
-// w = stage width, door = opening in the "Stage N" wall at its start.
-// Chase: the T-Rex runs at walk speed x max(base, 1 + (gap - near) x k): it races in when far
-// behind and then creeps up, so you have to sprint to stay ahead.
+// The course runs along +z from the lobby's red carpet, as in the reference video:
+// Stage 1 is the green grass terraces climbing up behind the "STAGE 1" gate, Stage 2 the grey
+// zig-zag stone ramps. Later stages repeat those two looks, longer and steeper.
+// Giant troll-face balls roll down every stage from the top (cE) to the bottom (zS) on the
+// server clock: one every `every` s at `speed` studs/s, radius r, in a random lane.
+// w = stage width, door = opening in the "STAGE N" gate at its start.
 export const STAGES = [
-    { name: 'Stage 1', sub: 'DINO RUN', subColor: '#7dff6b', type: 'Carpet', len: 260, w: 40, door: 40, pickup: 1, wins: 1 },
-    { name: 'Stage 2', sub: 'GRASS STEPS', subColor: '#46ec50', type: 'Terraces', len: 300, w: 44, door: 32, pickup: 1, wins: 2 },
-    { name: 'Stage 3', sub: 'T-REX CHASE!', subColor: '#ff5a5a', type: 'Ramps', len: 360, w: 44, door: 30, chase: { base: 1.02, k: 0.03, near: 20 }, chaseWait: 2, pickup: 1, wins: 5 },
-    { name: 'Stage 4', sub: 'VOLCANO', subColor: '#ff8a1e', type: 'Volcano', len: 320, w: 44, door: 28, pickup: 1, wins: 15 },
-    { name: 'Stage 5', sub: 'PTERO SKIES', subColor: '#6fe0ff', type: 'Ptero', len: 330, w: 40, door: 26, laneGap: 22, bs: 30, pickup: 1, wins: 40 },
-    { name: 'Stage 6', sub: 'DINO KING!', subColor: '#ffd028', type: 'King', len: 420, w: 44, door: 30, chase: { base: 1.04, k: 0.035, near: 18 }, chaseWait: 1.5, pickup: 1, wins: 100 },
+    { name: 'STAGE 1', type: 'Terraces', len: 300, w: 44, door: 40, pickup: 1, wins: 1, gaps: 0, rise: 1.5, balls: { every: 7, speed: 20, r: 5.5 } },
+    { name: 'STAGE 2', type: 'Ramps', len: 360, w: 48, door: 36, pickup: 1, wins: 2, climb: 1, balls: { every: 5.5, speed: 24, r: 6 } },
+    { name: 'STAGE 3', type: 'Terraces', len: 320, w: 44, door: 36, pickup: 1, wins: 5, gaps: 0.3, rise: 3, balls: { every: 5, speed: 26, r: 6 } },
+    { name: 'STAGE 4', type: 'Ramps', len: 380, w: 48, door: 36, pickup: 1, wins: 15, climb: 1.4, balls: { every: 4.2, speed: 28, r: 6.5 } },
+    { name: 'STAGE 5', type: 'Terraces', len: 340, w: 44, door: 36, pickup: 1, wins: 40, gaps: 0.45, rise: 3, balls: { every: 3.6, speed: 30, r: 6.5 } },
+    { name: 'STAGE 6', type: 'Ramps', len: 420, w: 48, door: 36, pickup: 1, wins: 100, climb: 1.8, balls: { every: 3, speed: 33, r: 7.5 } },
 ];
 {
     let z = 70;
@@ -179,9 +179,17 @@ export const DINOS = [
 export const dinoById = Object.fromEntries(DINOS.map((d) => [d.id, d]));
 export const STARTER_DINO = 'Raptor';
 // The giant chaser (Stage 3) and the Dino King (Stage 6): dark rex with a fiery mouth
-export const CHASER_LOOK = { id: 'Chaser', shape: 'chaser', body: 0x1c1a24, belly: 0x2e2a3a, accent: 0x0e0c14, glow: 0xff6a14 };
-export const KING_LOOK = { id: 'King', shape: 'chaser', body: 0x6a1420, belly: 0x2a0a10, accent: 0xffd028, glow: 0xffb51c, crown: true };
-export const PTERO_LOOK = { id: 'WildPtero', shape: 'ptero', body: 0x7a3a8a, belly: 0xe0b8e8, accent: 0x3a1448 };
+
+// Troll balls rolling down a stage at server time t (seconds): ball k leaves the top at
+// k * every and rolls `age` seconds; lane is -1, 0 or 1 (left, middle, right)
+export function ballSchedule(s, t) {
+    const b = s.balls, travel = (s.cE - s.zS + 30) / b.speed, out = [];
+    for (let k = Math.floor((t - travel) / b.every) + 1; k <= Math.floor(t / b.every); k++) {
+        const h = Math.imul(k ^ 0x5bd1e995, 2654435761) >>> 0;
+        out.push({ k, age: t - k * b.every, lane: (h % 3) - 1 });
+    }
+    return out;
+}
 
 export const AURAS = [
     { id: 'Leaf', name: 'Jungle Leaves', req: 10, mult: 1.1, color: 0x46ec50, ic: '🍃' },

@@ -3,12 +3,12 @@ import {
     texFrom, billboard, textPlane, camera, signBoard,
 } from './engine.js';
 import { S, actions, net } from './state.js';
-import { lavaMaterial, studWallMaterial, dottedWallMaterial, checkerMaterial } from './textures.js';
-import { emitTread, flame } from './fx.js';
+import { studWallMaterial, dottedWallMaterial, checkerMaterial } from './textures.js';
+import { emitTread } from './fx.js';
 import { buildDino, walkDino } from './dino.js';
 import {
-    CFG, LOBBY, STAGES, TREADMILLS, TREAD_GEO, PASSES, DINOS, CHASER_LOOK, KING_LOOK, PTERO_LOOK, EGG_MINUTES, FREE_BOOST_MINUTES,
-    dinoById, fmt, sci, clamp, clock, rngFrom, buxText,
+    CFG, LOBBY, STAGES, TREADMILLS, TREAD_GEO, PASSES, DINOS, EGG_MINUTES, FREE_BOOST_MINUTES,
+    dinoById, fmt, sci, clock, rngFrom, buxText, ballSchedule,
 } from '../../shared/config.js';
 
 const HX = LOBBY.halfX, HZ = LOBBY.halfZ;
@@ -17,7 +17,7 @@ const HX = LOBBY.halfX, HZ = LOBBY.halfZ;
 const LC = {
     carpet: 0xe0182a, carpetDark: 0xb8101e, path: 0xffd640, pathDark: 0xe8b820, sand: 0xc89a66, sandDark: 0xa87a4a,
     trunk: 0x8a5a32, leaf: 0x34d04a, leafDark: 0x22a83a, grass: 0x4cd23c, dirt: 0x8a5a36, stone: 0x9a98aa, stoneDark: 0x77768a,
-    lavender: 0xbcb4f0, gold: 0xf2c230, basalt: 0x4a3c3c, wood: 0xa86a3a, woodDark: 0x7a4a26, red: 0xe8182c,
+    lavender: 0xbcb4f0, gold: 0xf2c230, red: 0xe8182c, brick: 0x8a5236, brickDark: 0x5a3220, clay: 0xc8705a, clayDark: 0xa85a48,
 };
 
 export const SPAWN = new V3(LOBBY.spawn.x, LOBBY.spawn.y, LOBBY.spawn.z);
@@ -125,24 +125,6 @@ function sandWall(sx, sy, sz, x, y, z, color) {
     texturedBox(sx, sy, sz, x, y, z, dottedWallMaterial(color || LC.sand, Math.max(sx, sz) / 6, sy / 6));
     solids.push(aabb(x, y, z, sx, sy, sz));
 }
-function lavaPit(w, z0, z1) {
-    const len = z1 - z0;
-    texturedBox(w, 1, len, 0, -6.5, z0 + len / 2, lavaMaterial(w / 14, len / 14));
-    const k = aabb(0, -22, z0 + len / 2, w, 34, len); k.active = true; kills.push(k);
-}
-// Glowing lava column (Stage 4 walls)
-function lavaPillar(x, z, top) {
-    const sy = top + 8;
-    texturedBox(3, sy, 3, x, -8 + sy / 2, z, lavaMaterial(1, sy / 6));
-    const k = aabb(x, -8 + sy / 2, z, 3, sy, 3); k.active = true; kills.push(k);
-}
-const CONE = new T.ConeGeometry(1, 1, 6);
-function cone(x, y, z, r, h, color, o) {
-    const m = new T.Mesh(CONE, mat(color, o));
-    m.scale.set(r, h, r); m.position.set(x, y + h / 2, z); m.castShadow = true;
-    scene.add(m);
-    return m;
-}
 // Blue sneaker worth +Speed, the reference's speed icon, with its label floating underneath
 function addPickup(stageIdx, x, y, z, amount) {
     const g = new T.Group();
@@ -157,52 +139,67 @@ function addPickup(stageIdx, x, y, z, amount) {
     const id = stageIdx + ':' + pickups.filter((p) => p.stage === stageIdx).length;
     pickups.push({ id, stage: stageIdx, g, base: y + 2.4, amount, respawnAt: 0, phase: Math.random() * 6 });
 }
-// Side walls of an open-air stage, with trees standing on top of them
-function sideWalls(s, rng, o) {
-    o = o || {};
-    const mid = s.zS + s.len / 2, h = o.h || 26, bottom = o.bottom ?? -10;
-    const wm = o.mat || dottedWallMaterial(o.color || LC.sand, s.len / 6, (h - bottom) / 6);
+// Stage surroundings from the reference: lavender checker walls with dark-blue square windows,
+// and beyond them reddish clay cliffs with grass on top and blocky trees
+function sideWalls(s, rng) {
+    const mid = s.zS + s.len / 2, bottom = s.y0 - 46, h = s.y1 + 26;
+    const wm = checkerMaterial(LC.lavender, s.len / 8, (h - bottom) / 8);
     for (const sx of [-1, 1]) {
-        texturedBox(3, h - bottom, s.len, sx * (s.w / 2 + 1.5), (h + bottom) / 2, mid, wm);
-        solids.push(aabb(sx * (s.w / 2 + 1.5), (h + bottom) / 2, mid, 3, h - bottom, s.len));
-        if (o.trees !== false) treeLine(rng, sx * (s.w / 2 + 6), s.zS + 4, sx * (s.w / 2 + 6), s.zE - 4, h, 9);
-        if (o.trim) box(1, 0.8, s.len, sx * (s.w / 2 + 0.2), h - 0.4, mid, o.trim, { decor: true });
+        const x = sx * (s.w / 2 + 1.5);
+        texturedBox(3, h - bottom, s.len, x, (h + bottom) / 2, mid, wm);
+        solids.push(aabb(x, (h + bottom) / 2, mid, 3, h - bottom, s.len));
+        // Windows a little above the floor line as it climbs
+        for (let z = s.zS + 10; z < s.zE - 6; z += 16) {
+            const y = s.heightAt(z) + 12;
+            deco(0.4, 6, 6, x - sx * 1.7, y, z, 0x2a3a8a);
+            deco(0.5, 2.2, 2.2, x - sx * 1.8, y, z, 0x6a8ae8);
+        }
+        // Clay cliffs outside the walls, stepping up with the course
+        for (let z = s.zS; z < s.zE; z += 18) {
+            const top = s.heightAt(z + 9) + 14 + rng() * 14, cx = sx * (s.w / 2 + 14 + rng() * 10);
+            deco(20 + rng() * 8, top - bottom, 19, cx, (top + bottom) / 2, z + 9, rng() < 0.5 ? LC.clay : LC.clayDark);
+            deco(22, 1.6, 20, cx, top + 0.8, z + 9, LC.grass);
+            if (rng() < 0.6) tree(cx + (rng() - 0.5) * 10, top + 1.6, z + 9, 1 + rng() * 0.6, rng);
+        }
     }
 }
-// The "Stage N" gate across the start of a stage, with the doorway through it
-const STAGE_H = 44;
-function stageWall(prev, s, wallMat) {
-    const half = Math.max(prev.w, s.w) / 2 + 3, D = s.door / 2, DH = 22, z = s.zS + 1;
-    texturedBox(half - D, STAGE_H + 12, 2, -(half + D) / 2, STAGE_H / 2 - 6, z, wallMat);
-    texturedBox(half - D, STAGE_H + 12, 2, (half + D) / 2, STAGE_H / 2 - 6, z, wallMat);
-    texturedBox(D * 2, STAGE_H - DH + 4, 2, 0, (STAGE_H + DH + 4) / 2, z, wallMat);
-    solids.push(aabb(-(half + D) / 2, STAGE_H / 2 - 6, z, half - D, STAGE_H + 12, 2), aabb((half + D) / 2, STAGE_H / 2 - 6, z, half - D, STAGE_H + 12, 2));
-    solids.push(aabb(0, (STAGE_H + DH + 4) / 2, z, D * 2, STAGE_H - DH + 4, 2));
-    // Gold frame round the doorway
-    box(D * 2 + 2, 1.2, 2.6, 0, DH + 0.6, z, LC.gold, { decor: true });
-    for (const sx of [-1, 1]) box(1.2, DH, 2.6, sx * (D + 0.6), DH / 2, z, LC.gold, { decor: true });
-    const lines = [{ t: s.name, c: '#ffffff', s: '#1a1f5c', px: 170 }];
-    if (s.sub) lines.push({ t: s.sub, c: s.subColor, s: '#1a1f5c', px: 90 });
-    textPlane(lines, 30, 1024, new V3(0, DH + 11, s.zS - 0.2), new V3(0, DH + 11, s.zS - 10));
+// The "STAGE N" gate from the reference: two brown brick pillars with a see-through lavender
+// checker portal between them and the big white title above; walls close off the sides
+function stageGate(s, y, prevW) {
+    const half = Math.max(prevW, s.w) / 2 + 3, D = s.door / 2, PH = 34, z = s.zS + 1;
+    for (const sx of [-1, 1]) {
+        sandWall(half - D, PH + 50, 2, sx * (half + D) / 2, y + PH / 2 - 25, z, LC.lavender);
+        texturedBox(5, PH + 4, 5, sx * (D + 2.5), y + (PH + 4) / 2 - 2, z, dottedWallMaterial(LC.brick, 1, 6));
+        solids.push(aabb(sx * (D + 2.5), y + PH / 2, z, 5, PH, 5));
+        deco(6, 1.2, 6, sx * (D + 2.5), y + PH + 2.6, z, LC.brickDark);
+    }
+    texturedBox(D * 2 + 10, 6, 3, 0, y + PH + 3, z, dottedWallMaterial(LC.brick, 6, 1));
+    // The portal: walk straight through it
+    const portal = new T.Mesh(new T.PlaneGeometry(D * 2, PH), new T.MeshLambertMaterial({ map: checkerMaterial(LC.lavender, D / 4, PH / 8).map, color: 0xd8d0ff, transparent: true, opacity: 0.35, depthWrite: false, side: T.DoubleSide }));
+    portal.position.set(0, y + PH / 2, z); scene.add(portal);
+    textPlane([{ t: s.name, c: '#ffffff', s: '#1a1f5c', px: 190 }], 34, 1024, new V3(0, y + PH - 6, s.zS - 0.4), new V3(0, y + PH - 6, s.zS - 10));
 }
-// Landing at the end of a stage: "+N Wins / Return!" pad left, "x2 Wins!" pad right,
-// white chevrons on the floor pointing on to the next stage
+// Landing at the top of a stage, as in the reference: a pink "+2N Wins" pad (x2 Wins pass) on the
+// left, an orange "+N Wins" pad on the right (both send you back to the lobby), light-blue
+// chevrons down the middle pointing on to the next stage
 function landing(i, s, finish) {
-    const w = Math.max(s.w, 30), y = s.landY || 0;
-    studBox(w, 2, CFG.endZone, 0, y - 1, s.cE + CFG.endZone / 2, 0x6c6a8a);
+    const w = s.w, y = s.y1;
+    studBox(w, y - s.y0 + 8, CFG.endZone, 0, (y + s.y0 - 8) / 2, s.cE + CFG.endZone / 2, LC.grass);
     const pz = s.cE + CFG.endZone / 2;
     const pad = (x, color, lines, enter) => {
         const m = new T.Mesh(UNIT, mat(color, { neon: true }));
-        m.scale.set(9, 0.3, 5); m.position.set(x, y + 0.15, pz); m.rotation.y = x > 0 ? 0.35 : -0.35; scene.add(m);
+        m.scale.set(10, 0.4, 6); m.position.set(x, y + 0.2, pz); m.rotation.y = x > 0 ? 0.3 : -0.3; scene.add(m);
+        const rim = new T.Mesh(UNIT, mat(0x16121f)); rim.scale.set(10.8, 0.3, 6.8); rim.position.set(x, y + 0.1, pz); rim.rotation.y = m.rotation.y; scene.add(rim);
         billboard(lines, 8, 512, new V3(x, y + 4.5, pz));
-        const tr = aabb(x, y + 2.5, pz, 9, 5, 6);
+        const tr = aabb(x, y + 2.5, pz, 10, 5, 7);
         tr.enter = enter;
         triggers.push(tr);
     };
-    // Facing down the course, +x is on the left: Return on the left, x2 on the right
-    pad(w / 2 - 7, 0xff8a1e, [{ t: '+' + s.wins + ' Wins', c: '#ffd028', s: '#16121f', px: 80 }, { t: finish ? 'FINISH!' : 'Return!', c: '#ffffff', s: '#16121f', px: 50 }], () => actions.pad(i));
-    pad(-w / 2 + 7, 0xff2ad8, [{ t: 'x2 Wins!', c: '#ff7ae0', s: '#16121f', px: 80 }, { t: 'Only ' + buxText(PASSES.DoubleWins.price), c: '#ffffff', s: '#16121f', px: 46 }], () => actions.buy('pass', 'DoubleWins'));
-    if (!finish) for (let k = 0; k < 3; k++) chevron(0, y + 0.08, s.cE + 8 + k * 7, 0xffffff);
+    // Facing up the course, +x is on screen-left
+    const x2 = () => (S.passes.DoubleWins ? actions.pad(i) : actions.buy('pass', 'DoubleWins'));
+    pad(w / 2 - 7, 0xff2ad8, [{ t: '+' + s.wins * 2 + ' Wins', c: '#ff7ae0', s: '#16121f', px: 80 }, { t: 'x2 Wins · ' + buxText(PASSES.DoubleWins.price), c: '#ffffff', s: '#16121f', px: 40 }], x2);
+    pad(-w / 2 + 7, 0xff8a1e, [{ t: '+' + s.wins + ' Wins', c: '#ffd028', s: '#16121f', px: 80 }, { t: finish ? 'FINISH!' : 'Return!', c: '#ffffff', s: '#16121f', px: 46 }], () => actions.pad(i));
+    if (!finish) for (let k = 0; k < 4; k++) chevron(0, y + 0.1, s.cE + 6 + k * 7, 0x9fe8ff);
 }
 // White ">" arrow painted on the floor, pointing down the course (+z)
 function chevron(x, y, z, color) {
@@ -252,6 +249,18 @@ function buyPad(x, z, color, lines, kind, key) {
 // =====================================================================================
 // Lobby pieces
 // =====================================================================================
+// Black thorny crack splat flat on the floor
+const SPLAT_MAT = new T.MeshBasicMaterial({ color: 0x16121f });
+function splat(x, z, s, rng) {
+    const g = new T.Group(); g.position.set(x, 0.08, z); g.rotation.y = rng() * Math.PI; scene.add(g);
+    const core = new T.Mesh(UNIT, SPLAT_MAT); core.scale.set(2.4 * s, 0.04, 2.4 * s); core.rotation.y = 0.4; g.add(core);
+    for (let k = 0; k < 7; k++) {
+        const a = k / 7 * Math.PI * 2 + rng() * 0.4, len = (3 + rng() * 3) * s;
+        const arm = new T.Mesh(UNIT, SPLAT_MAT);
+        arm.scale.set(len, 0.04, 0.5 * s); arm.position.set(Math.cos(a) * len / 2, 0, Math.sin(a) * len / 2); arm.rotation.y = -a;
+        g.add(arm);
+    }
+}
 // Fossil Chest: a wooden chest strapped with bones on a little sand mound
 function fossilChest(pos) {
     const g = new T.Group(); g.position.copy(pos); g.rotation.y = Math.PI / 2 + 0.3; scene.add(g);
@@ -384,14 +393,21 @@ export function renderBoards(msg) {
 }
 
 // ----- DINO SHOP pedestals: a red pad you step on, the dino standing on it -----
+// Reference style: "Price: 1.00K Wins" over "75+/Speed"
+function price2(v) {
+    if (v < 1000) return String(v);
+    const suf = ['K', 'M', 'B', 'T'];
+    let i = -1;
+    while (v >= 1000 && i < suf.length - 1) { v /= 1000; i++; }
+    return v.toFixed(v >= 100 ? 1 : 2) + suf[i];
+}
 function pedestalLines(d) {
-    const lines = [{ t: '+' + fmt(d.bonus) + '/Speed', c: '#7dff6b', s: '#16121f', px: 72 }];
-    if (S.equipped === d.id) lines.push({ t: 'RIDING', c: '#6fe0ff', s: '#16121f', px: 50 });
-    else if (S.owned[d.id]) lines.push({ t: 'OWNED - Step to Ride', c: '#7dff6b', s: '#16121f', px: 44 });
-    else if (d.pass) lines.push({ t: d.tagline + ' ONLY ' + buxText(PASSES[d.pass].price), c: '#ffd028', s: '#16121f', px: 46 });
-    else lines.push({ t: 'Price: ' + fmt(d.req) + ' Wins', c: '#ffd028', s: '#16121f', px: 50 });
-    lines.unshift({ t: d.name, c: '#ffffff', s: '#16121f', px: 46 });
-    return lines;
+    let top;
+    if (S.equipped === d.id) top = { t: 'RIDING', c: '#6fe0ff' };
+    else if (S.owned[d.id]) top = { t: 'OWNED', c: '#7dff6b' };
+    else if (d.pass) top = { t: d.tagline + ' ' + buxText(PASSES[d.pass].price), c: '#ffd028' };
+    else top = { t: 'Price: ' + price2(d.req) + ' Wins', c: '#ffffff' };
+    return [{ ...top, s: '#16121f', px: 52 }, { t: fmt(d.bonus) + '+/Speed', c: '#7dff6b', s: '#16121f', px: 64 }];
 }
 function buildPedestal(d, pos, face) {
     const glow = d.glow || 0xff2a3a;
@@ -442,20 +458,26 @@ export function refreshShop() {
     }
 }
 // Treadmill: belt runs toward the red carpet (+x), console at the back (-x)
+// Treadmill as in the reference: a glowing running strip set into the floor with a gem
+// spinning above it; the belt still pushes toward the carpet (+x) so you can run in place
+const GEM = new T.OctahedronGeometry(1.4, 0);
 function buildTreadmill(def, cx, top, cz) {
     const L = TREAD_GEO.len, W = TREAD_GEO.width, look = TREAD_LOOK[def.mult];
-    const belt = new T.Mesh(UNIT, new T.MeshLambertMaterial({ map: beltTex, color: look.belt }));
-    belt.scale.set(L, 0.6, W); belt.position.set(cx, top + 0.3, cz); belt.receiveShadow = true; scene.add(belt);
+    const glow = def.mult > 1;
+    const beltMat = new T.MeshBasicMaterial({ map: beltTex, color: look.glow || look.belt });
+    if (glow) beltMat.color.multiplyScalar(0.95);
+    const belt = new T.Mesh(UNIT, glow ? beltMat : new T.MeshLambertMaterial({ map: beltTex, color: look.belt }));
+    belt.scale.set(L, 0.6, W); belt.position.set(cx, top + 0.3, cz); belt.receiveShadow = !glow; scene.add(belt);
     const c = aabb(cx, top + 0.3, cz, L, 0.6, W); c.belt = new V3(12, 0, 0); c.tread = def; solids.push(c);
-    const neon = def.mult > 1;
-    for (const s of [-1, 1]) {
-        box(L, 1, 0.7, cx, top + 0.5, cz + s * (W / 2 + 0.35), look.frame, { neon });
-        box(0.7, 5, 0.7, cx - L / 2 + 0.5, top + 2.5, cz + s * (W / 2), look.frame, { decor: true });
+    for (const s of [-1, 1]) box(L + 1, 0.9, 0.6, cx, top + 0.45, cz + s * (W / 2 + 0.3), look.frame, { neon: glow });
+    for (const s of [-1, 1]) box(0.6, 0.9, W + 1.2, cx + s * (L / 2 + 0.3), top + 0.45, cz, look.frame, { neon: glow });
+    if (glow) {
+        const gem = new T.Mesh(GEM, mat(look.glow, { neon: true }));
+        gem.position.set(cx - 3, top + 7, cz); gem.scale.set(1, 1.4, 1); scene.add(gem);
+        const ph = Math.random() * 6;
+        tickers.push((dt, t) => { gem.rotation.y += dt * 1.6; gem.position.y = top + 7 + Math.sin(t * 2 + ph) * 0.5; });
     }
-    box(0.7, 0.7, W + 0.7, cx - L / 2 + 0.5, top + 4.3, cz, look.frame, { decor: true });
-    box(1, 2.6, W - 0.6, cx - L / 2, top + 5.8, cz, look.frame, { decor: true });
-    box(0.3, 1.8, W - 1.6, cx - L / 2 + 0.55, top + 5.8, cz, look.glow || 0x1e5ad8, { neon: true, decor: true });
-    const sp = billboard(treadLines(def), 12, 512, new V3(cx, top + 10, cz));
+    const sp = billboard(treadLines(def), 12, 512, new V3(cx + 2, top + 10.5, cz));
     treadItems.push({ def, sp, sig: '' });
     if (def.mult > 1) {
         const at = new V3(cx, top + 0.7, cz);
@@ -493,15 +515,8 @@ function buildLobby() {
     }
     for (let i = 0; i < 16; i++) cloud((rng() * 2 - 1) * 220, 70 + rng() * 50, (rng() * 2 - 1) * 260 + 150, 1 + rng() * 1.5, rng);
 
-    // Stage 1 gate: two big sandstone pillars and a lintel, gold doorway frame
-    const GH = 46;
-    for (const sx of [-1, 1]) {
-        sandWall(10, GH, 10, sx * (half + 3), GH / 2, HZ + 2);
-        box(11, 2, 11, sx * (half + 3), GH + 1, HZ + 2, LC.gold, { decor: true });
-        tree(sx * (half + 3), GH + 2, HZ + 2, 1.3, rng);
-    }
-    texturedBox(half * 2 + 4, 10, 6, 0, GH - 5, HZ + 2, dottedWallMaterial(LC.sand, 9, 2));
-    box(half * 2 + 2, 1.2, 6.4, 0, GH - 10.6, HZ + 2, LC.gold, { decor: true });
+    // Black splat marks on the carpet where troll balls crashed out of Stage 1 (the reference's thorn marks)
+    for (const [x, z, s] of [[-4, 58, 1.2], [5, 44, 1], [-2, 22, 0.9], [3, -18, 0.8], [-5, 6, 0.7]]) splat(x, z, s, rng);
 
     // Spawn: a gold-rimmed pad on the carpet
     box(14, 0.3, 14, SPAWN.x, 0.15, SPAWN.z, 0x16121f, { decor: true });
@@ -552,353 +567,202 @@ function buildLobby() {
     billboard([{ t: 'Fossil Chest', c: '#ffd028', s: '#16121f', px: 80 }, { t: 'Like the game + claim daily!', c: '#ffe07a', s: '#16121f', px: 44 }], 14, 512, new V3(-48, 14, -60));
     eggNest(new V3(-24, 0, -58));
     // "Update!" poster by the shop
-    signBoard(new V3(20, 9, 66), new V3(0, 0, -1), 16, 9, [{ t: 'UPDATE!', c: '#ff3c50', s: '#ffffff', px: 120 }, { t: 'Stage 6: DINO KING', c: '#1a1f5c', px: 80 }, { t: '+ Troll Menu!', c: '#8a1cff', px: 70 }], 0xfff4dc);
+    signBoard(new V3(20, 9, 66), new V3(0, 0, -1), 16, 9, [{ t: 'UPDATE!', c: '#ff3c50', s: '#ffffff', px: 120 }, { t: 'Race Event + 6 Stages!', c: '#1a1f5c', px: 80 }, { t: '+ Troll Menu!', c: '#8a1cff', px: 70 }], 0xfff4dc);
 }
 
 // =====================================================================================
-// Course. Stages sit end to end along +z; each starts behind a "Stage N" gate and ends on a
-// landing with the Wins pads. Stage 1-3 are modelled on the reference video.
+// Course, modelled on the reference video. Stages sit end to end along +z and keep climbing:
+// each starts at the height the last one ended (s.y0) behind its "STAGE N" gate and ends on a
+// landing at its top (s.y1). s.path holds the floor's centre line for heightAt / xAt, which the
+// troll balls roll down.
 // =====================================================================================
-// ----- Stage 1: the red carpet run with spike traps on the server clock -----
-export const spikes = [];
-const SPIKE_GEO = new T.ConeGeometry(0.55, 2.2, 5);
-function spikeTrap(x, z, w, d, phase) {
-    const g = new T.Group(); g.position.set(x, -2.3, z); scene.add(g);
-    const sm = mat(0xd8dce8);
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) {
-        const c = new T.Mesh(SPIKE_GEO, sm);
-        c.position.set((i - 1.5) * (w / 4), 1.1, (j - 1) * (d / 3)); c.castShadow = true; g.add(c);
-    }
-    // The black thorn splat on the carpet (the reference's dark star marks), glowing red before it fires
-    const mark = new T.MeshBasicMaterial({ color: 0x16121f });
-    const star = new T.Group(); star.position.set(x, 0.07, z); scene.add(star);
-    for (let k = 0; k < 4; k++) {
-        const arm = new T.Mesh(UNIT, mark); arm.scale.set(w * 1.05, 0.04, 1.1); arm.rotation.y = k * Math.PI / 4; star.add(arm);
-    }
-    const hole = new T.Mesh(UNIT, mark); hole.scale.set(w * 0.75, 0.05, d * 0.75); star.add(hole);
-    const k = aabb(x, 1, z, w * 0.9, 2, d * 0.9); k.active = false; kills.push(k);
-    spikes.push({ g, mark, k, phase, z });
-}
-// Spikes for server time t (seconds): raise/lower them and arm their kill boxes
-const WARN = new T.Color(0xff2a2a), DARK = new T.Color(0x16121f);
-export function updateSpikes(t) {
-    const F = CFG.spikes, cyc = F.hidden + F.warn + F.up;
-    for (const s of spikes) {
-        if (Math.abs(s.z - camera.position.z) > 220) continue;
-        const k = ((t + s.phase) % cyc + cyc) % cyc;
-        let y = -2.3, warn = 0;
-        if (k < F.hidden) y = -2.3;
-        else if (k < F.hidden + F.warn) { y = -1.7 + Math.sin(k * 70) * 0.15; warn = 0.5 + 0.5 * Math.sin(k * 30); }
-        else { const u = (k - F.hidden - F.warn) / F.up; y = u < 0.08 ? -1.7 + (u / 0.08) * 1.7 : u > 0.88 ? -((u - 0.88) / 0.12) * 2.3 : 0; }
-        s.g.position.y = y;
-        s.mark.color.copy(DARK).lerp(WARN, warn);
-        s.k.active = y > -1;
-    }
-}
-function buildCarpet(i, s, rng) {
-    const W = s.w, z1 = s.cE;
-    sideWalls(s, rng, { h: 26 });
-    studBox(W, 2, z1 - s.zS, 0, -1, (s.zS + z1) / 2, LC.path);
-    box(24, 0.1, z1 - s.zS, 0, 0.04, (s.zS + z1) / 2, LC.carpet, { studs: true, decor: true });
-    for (const sx of [-1, 1]) box(0.8, 0.12, z1 - s.zS, sx * 12.4, 0.05, (s.zS + z1) / 2, LC.carpetDark, { decor: true });
-    // Rows of four traps across the whole width; neighbours fire half a cycle apart
-    const cyc = CFG.spikes.hidden + CFG.spikes.warn + CFG.spikes.up;
-    let row = 0;
-    for (let z = s.zS + 34; z < z1 - 12; z += 26, row++) {
-        for (let n = 0; n < 4; n++) spikeTrap(-15 + n * 10, z, 9.6, 7, row * 0.9 + (n % 2) * cyc / 2);
-    }
-    // Pillars with torches along the walls
-    for (let z = s.zS + 20; z < z1; z += 30) for (const sx of [-1, 1]) {
-        box(3, 14, 3, sx * (W / 2 - 1.5), 7, z, LC.sandDark, { studs: true });
-        box(1.6, 1.6, 1.6, sx * (W / 2 - 1.5), 14.8, z, 0xff8a1e, { neon: true, decor: true });
-    }
-    for (let z = s.zS + 22; z < z1 - 10; z += 20) addPickup(i, (rng() < 0.5 ? -1 : 1) * (15 + rng() * 2), 0, z + rng() * 8, s.pickup);
+function pathLookup(s) {
+    s.heightAt = (zq) => {
+        if (zq <= s.zS) return s.y0;
+        for (const p of s.path) if (zq >= p.z0 && zq <= p.z1) return p.y0 + (p.y1 - p.y0) * ((zq - p.z0) / Math.max(0.01, p.z1 - p.z0));
+        return s.y1;
+    };
+    s.xAt = (zq) => {
+        for (const p of s.path) if (zq >= p.z0 && zq <= p.z1) return p.x0 + (p.x1 - p.x0) * ((zq - p.z0) / Math.max(0.01, p.z1 - p.z0));
+        return 0;
+    };
 }
 
-// ----- Stage 2: green grass terraces stepping up and down, lavender checker walls -----
-function terrace(W, len, y, z0) {
-    const zc = z0 + len / 2, depth = 14;
+// ----- Terraces (Stage 1 in the reference): wide green grass steps climbing to the top -----
+function terrace(W, len, y, z0, bottom, top) {
+    const zc = z0 + len / 2, depth = y - bottom;
     texturedBox(W, depth, len, 0, y - depth / 2 - 0.4, zc, studWallMaterial(LC.dirt, W / 4, depth / 4));
-    texturedBox(W, 0.8, len, 0, y - 0.4, zc, studWallMaterial(LC.grass, W / 4, len / 4));
+    texturedBox(W, 0.8, len, 0, y - 0.4, zc, studWallMaterial(top || LC.grass, W / 4, len / 4));
     solids.push(aabb(0, y - depth / 2, zc, W, depth, len));
 }
 function buildTerraces(i, s, rng) {
-    const W = s.w;
-    sideWalls(s, rng, { h: 30, bottom: -30, mat: checkerMaterial(LC.lavender, s.len / 8, 60 / 8) });
-    // Far below: a misty green floor, so a fall reads as a long drop
-    deco(W, 1, s.len, 0, -32, s.zS + s.len / 2, 0x2a8a3a);
-    const segs = [];
-    let z = s.zS, y = 0;
-    segs.push({ len: 16, y: 0, gap: 0 });
-    z += 16;
-    const half = s.zS + (s.cE - s.zS) * 0.55;
-    while (z < s.cE - 60) {
-        const len = 10 + Math.floor(rng() * 9);
-        const up = z < half;
-        const r = rng();
-        let dy = up ? (r < 0.5 ? 1.5 : r < 0.75 ? 3 : 0) : (r < 0.55 ? -1.5 : r < 0.8 ? -3 : 0);
-        y = clamp(y + dy, 0, 13.5); dy = 0;
-        const gap = rng() < 0.35 ? 3 + Math.floor(rng() * 3) : 0;
-        segs.push({ len, y, gap });
-        z += len + gap;
+    const W = s.w, bottom = s.y0 - 20;
+    s.path = [];
+    let z = s.zS, y = s.y0;
+    // Yellow studded apron inside the gate
+    terrace(W, 18, y, z, bottom, LC.path);
+    s.path.push({ z0: z, z1: z + 18, y0: y, y1: y, x0: 0, x1: 0 });
+    z += 18;
+    let n = 0;
+    while (z < s.cE - 16) {
+        const len = 10 + Math.floor(rng() * 6);
+        const gap = rng() < s.gaps ? 3 + Math.floor(rng() * 2) : 0;
+        const rise = gap ? 1.5 : s.rise > 1.5 && rng() < 0.35 ? s.rise : rng() < 0.15 ? 0 : 1.5;
+        const z0 = z + gap, y0 = y;
+        if (z0 + len > s.cE - 4) break;
+        y += rise;
+        terrace(W, len, y, z0, bottom, n % 5 === 4 ? LC.path : LC.grass);
+        s.path.push({ z0: z, z1: z0 + 1.5, y0, y1: y, x0: 0, x1: 0 }, { z0: z0 + 1.5, z1: z0 + len, y0: y, y1: y, x0: 0, x1: 0 });
+        if (n % 2 === 1) addPickup(i, (rng() * 2 - 1) * (W / 2 - 6), y, z0 + len / 2, s.pickup);
+        for (const sx of [-1, 1]) if (rng() < 0.5) bush(sx * (W / 2 - 3), y, z0 + 2 + rng() * (len - 4), 0.7 + rng() * 0.4);
+        if (rng() < 0.4) flowers((rng() * 2 - 1) * (W / 2 - 8), z0 + len / 2, rng);
+        z = z0 + len; n++;
     }
-    // Walk back down to ground level before the landing
-    while (y > 0) { y = Math.max(0, y - 1.5); segs.push({ len: 5, y, gap: 0 }); }
-    let zz = s.zS;
-    segs.forEach((g, k) => {
-        zz += g.gap;
-        let len = g.len;
-        if (k === segs.length - 1) len = s.cE - zz;
-        terrace(W, len, g.y, zz);
-        if (k % 2 === 1 && len > 8) addPickup(i, (rng() * 2 - 1) * (W / 2 - 6), g.y, zz + len / 2, s.pickup);
-        if (len > 9) for (const sx of [-1, 1]) if (rng() < 0.7) bush(sx * (W / 2 - 3), g.y, zz + 2 + rng() * (len - 4), 0.7 + rng() * 0.4);
-        if (len > 9 && rng() < 0.5) flowers((rng() * 2 - 1) * (W / 2 - 8), zz + len / 2, rng);
-        zz += len;
-    });
+    terrace(W, s.cE - z, y, z, bottom);
+    s.path.push({ z0: z, z1: s.cE, y0: y, y1: y, x0: 0, x1: 0 });
+    s.y1 = y;
 }
 
-// ----- Stage 3: grey stone ramps over a chasm, with a giant T-Rex chasing you -----
+// ----- Ramps (Stage 2 in the reference): grey stone ramps zig-zagging up between wide landings,
+// low walls on both sides, light-blue chevrons pointing up -----
 function buildRamps(i, s, rng) {
-    const W = s.w;
-    sideWalls(s, rng, { h: 40, bottom: -40, color: 0xb89a7a });
-    deco(W, 1, s.len, 0, -42, s.zS + s.len / 2, 0x4a4a5a);
-    const path = []; // { z0, z1, y0, y1 } for the chaser's height lookup
-    let z = s.zS, y = 0, x = 0;
-    const PW = 18;
-    const flat = (len) => {
-        studBox(PW, y + 6, len, x, (y - 6) / 2, z + len / 2, LC.stone);
-        for (const sx of [-1, 1]) box(1, 1.6, len, x + sx * (PW / 2 - 0.5), y + 0.8, z + len / 2, LC.stoneDark, { studs: true });
-        path.push({ z0: z, z1: z + len, y0: y, y1: y });
-        z += len;
+    const W = s.w, PW = 18, side = W / 2 - PW / 2 - 1, bottom = s.y0 - 20;
+    s.path = [];
+    let z = s.zS, y = s.y0, x = side;
+    const slab = (w, len, cx, top) => {
+        studBox(w, top - bottom, len, cx, (top + bottom) / 2, z + len / 2, LC.stone);
     };
-    // A ramp is a run of shallow steps (each under the auto-step height)
-    const ramp = (n, dir) => {
-        const z0 = z, y0 = y;
-        for (let k = 0; k < n; k++) {
-            y += dir * 1.2;
-            studBox(PW, y + 6, 2.4, x, (y - 6) / 2, z + 1.2, LC.stone);
-            z += 2.4;
-        }
+    // Landing across the full width where the path turns
+    const flat = (len, toX) => {
+        slab(W, len, 0, y);
+        for (const sx of [-1, 1]) if (rng() < 0.6) deco(1.2, 1.4, len - 2, sx * (W / 2 - 1), y + 0.7, z + len / 2, LC.stoneDark);
+        s.path.push({ z0: z, z1: z + len, y0: y, y1: y, x0: x, x1: toX });
+        z += len; x = toX;
+    };
+    // A ramp is a run of shallow steps (each under the auto-step height) on one side
+    const ramp = (n) => {
+        const z0 = z, y0 = y, rise = 0.9 * s.climb;
+        for (let k = 0; k < n; k++) { y += rise; slab(PW, 2.4, x, y); z += 2.4; }
         for (const sx of [-1, 1]) {
-            const rail = box(1, 1.6, n * 2.4 + 0.4, x + sx * (PW / 2 - 0.5), (y0 + y) / 2 + 0.8, z0 + n * 1.2, LC.stoneDark, { decor: true });
-            rail.rotation.x = -Math.atan2(y - y0, n * 2.4); rail.updateMatrix();
+            const wall = box(1.2, 1.8, n * 2.4 + 0.4, x + sx * (PW / 2 - 0.6), (y0 + y) / 2 + 0.9, z0 + n * 1.2, LC.stoneDark, { decor: true, studs: true });
+            wall.rotation.x = -Math.atan2(y - y0, n * 2.4); wall.updateMatrix();
+            solids.push(aabb(x + sx * (PW / 2 - 0.6), (y0 + y) / 2 + 0.9, z0 + n * 1.2, 1.2, y - y0 + 2.2, n * 2.4));
         }
-        path.push({ z0, z1: z, y0, y1: y });
+        for (let k = 1; k < n; k += 4) chevron(x, y0 + (y - y0) * (k / n) + 0.15, z0 + k * 2.4, 0x7fe0ff);
+        s.path.push({ z0, z1: z, y0, y1: y, x0: x, x1: x });
     };
-    flat(20);
-    const plan = [['r', 6, 1], ['f', 16], ['x', 8], ['r', 5, 1], ['f', 14], ['x', -10], ['r', 6, -1], ['f', 18], ['r', 7, 1], ['f', 12], ['x', 9], ['r', 6, 1], ['f', 16], ['x', -7], ['r', 8, -1], ['f', 14]];
-    for (const p of plan) {
-        if (z > s.cE - 40) break;
-        if (p[0] === 'f') flat(p[1]);
-        else if (p[0] === 'r') ramp(p[1], p[2]);
-        else x = clamp(x + p[1], -(W / 2 - PW / 2 - 1), W / 2 - PW / 2 - 1);
+    flat(16, side);
+    let k = 0;
+    while (z < s.cE - 50) {
+        ramp(10 + Math.floor(rng() * 5));
+        if (k % 2 === 0) addPickup(i, x, y, z - 6, s.pickup);
+        flat(14, -x);
+        k++;
     }
-    // Back down to ground level and on to the landing
-    while (y > 0.01) ramp(1, -1);
-    y = 0;
-    if (z < s.cE) { const len = s.cE - z; studBox(Math.max(PW, Math.abs(x) * 2 + PW), 6, len, 0, -3, z + len / 2, LC.stone); path.push({ z0: z, z1: s.cE, y0: 0, y1: 0 }); }
-    s.heightAt = (zq) => {
-        for (const p of path) if (zq >= p.z0 && zq <= p.z1) return p.y0 + (p.y1 - p.y0) * ((zq - p.z0) / Math.max(0.01, p.z1 - p.z0));
-        return 0;
-    };
-    for (let n = 0; n < path.length; n += 2) addPickup(i, x * 0.3, path[n].y1, (path[n].z0 + path[n].z1) / 2, s.pickup);
-    buildChaser(s, CHASER_LOOK, 2.8);
-}
-// The chaser that hunts this player (local only; each player gets their own)
-function buildChaser(s, look, size) {
-    const m = buildDino({ ...look, size });
-    m.visible = false; scene.add(m);
-    const bb = new T.Box3().setFromObject(m);
-    m.userData.nose = bb.max.z;
-    m.userData.mouth = new V3(0, (bb.max.y - bb.min.y) * 0.72, bb.max.z - 1);
-    const k = aabb(0, 20, s.zS - 6, s.w + 4, 80, 4); k.active = false; kills.push(k);
-    s.chaseMesh = m; s.chaseKill = k;
+    flat(s.cE - z, 0);
+    s.y1 = y;
 }
 
-// ----- Stage 4: basalt stepping stones over lava, meteors raining down -----
-export const meteors = [];
-function meteorSpot(x, y, z, period, phase) {
-    const shadow = new T.Mesh(new T.CircleGeometry(4, 24), new T.MeshBasicMaterial({ color: 0xff2a14, transparent: true, opacity: 0, depthWrite: false }));
-    shadow.rotation.x = -Math.PI / 2; shadow.position.set(x, y + 0.1, z); scene.add(shadow);
-    const rock = new T.Group();
-    const r1 = new T.Mesh(UNIT, mat(0x3a2a2a)); r1.scale.setScalar(3.2); rock.add(r1);
-    const r2 = new T.Mesh(UNIT, mat(0xff6a14, { neon: true })); r2.scale.set(2.2, 3.4, 2.2); rock.add(r2);
-    rock.visible = false; scene.add(rock);
-    const k = aabb(x, y + 2, z, 7, 4, 7); k.active = false; kills.push(k);
-    meteors.push({ x, y, z, period, phase, shadow, rock, k, landed: false });
-}
-export function updateMeteors(t, onLand) {
-    const F = CFG.meteor;
-    for (const m of meteors) {
-        if (Math.abs(m.z - camera.position.z) > 200) { m.rock.visible = false; continue; }
-        const k = ((t + m.phase) % m.period + m.period) % m.period;
-        const warnEnd = F.warn, fallEnd = warnEnd + F.fall, burnEnd = fallEnd + F.burn;
-        m.shadow.material.opacity = k < warnEnd ? 0.15 + (k / warnEnd) * 0.5 : k < burnEnd ? 0.7 : 0;
-        m.shadow.scale.setScalar(k < warnEnd ? 0.5 + (k / warnEnd) * 0.5 : 1);
-        if (k >= warnEnd - 0.6 && k < fallEnd) {
-            const u = clamp((k - (warnEnd - 0.6)) / (0.6 + F.fall), 0, 1);
-            m.rock.visible = true;
-            m.rock.position.set(m.x + (1 - u) * 30, m.y + 2 + (1 - u * u) * 70, m.z - (1 - u) * 20);
-            m.rock.rotation.set(t * 3, t * 2, 0);
-            if (Math.random() < 0.6) flame(m.rock.position, 1.5, 2.2);
-        } else if (k < burnEnd && k >= fallEnd) {
-            m.rock.visible = true; m.rock.position.set(m.x, m.y + 1.6, m.z);
-            if (Math.random() < 0.5) flame(new V3(m.x, m.y + 1, m.z), 5, 1.8);
-        } else m.rock.visible = false;
-        m.k.active = k >= fallEnd - 0.05 && k < burnEnd;
-        const landed = k >= fallEnd && k < burnEnd;
-        if (landed && !m.landed && onLand) onLand(m);
-        m.landed = landed;
+// ----- Troll balls: huge dark balls with a grinning troll face and a fiery mouth -----
+// The body rolls; the face shell stays upright and looks down the slope.
+const ballFaceTex = (() => {
+    const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 512;
+    const x = cv.getContext('2d');
+    // Front of a three.js sphere (-z) sits at u = 0.75, v = 0.5
+    const cx = 768, cy = 250;
+    x.lineJoin = 'round'; x.lineCap = 'round';
+    // Mouth: a wide grin open into fire
+    const g = x.createRadialGradient(cx, cy + 70, 10, cx, cy + 70, 120);
+    g.addColorStop(0, '#fff3a0'); g.addColorStop(0.35, '#ffb51c'); g.addColorStop(0.7, '#ff4a14'); g.addColorStop(1, '#5a0a0a');
+    x.fillStyle = g;
+    x.beginPath(); x.moveTo(cx - 110, cy + 30); x.quadraticCurveTo(cx, cy + 210, cx + 110, cy + 30); x.quadraticCurveTo(cx, cy + 80, cx - 110, cy + 30); x.fill();
+    x.lineWidth = 9; x.strokeStyle = '#0c0a10'; x.stroke();
+    // Teeth along the top lip
+    x.fillStyle = '#fffbe8';
+    for (let i = 0; i < 7; i++) { const tx = cx - 84 + i * 28; x.beginPath(); x.moveTo(tx - 11, cy + 52 + Math.abs(i - 3) * -4); x.lineTo(tx + 11, cy + 52 + Math.abs(i - 3) * -4); x.lineTo(tx, cy + 76); x.fill(); }
+    // Eyes: white, squinting, small pupils looking down at you, heavy brows
+    for (const s of [-1, 1]) {
+        x.fillStyle = '#ffffff';
+        x.beginPath(); x.ellipse(cx + s * 52, cy - 34, 36, 24, s * 0.15, 0, Math.PI * 2); x.fill();
+        x.lineWidth = 6; x.strokeStyle = '#0c0a10'; x.stroke();
+        x.fillStyle = '#0c0a10'; x.beginPath(); x.arc(cx + s * 46, cy - 28, 10, 0, Math.PI * 2); x.fill();
+        x.lineWidth = 14; x.beginPath(); x.moveTo(cx + s * 18, cy - 54); x.lineTo(cx + s * 92, cy - 76); x.stroke();
     }
-}
-function buildVolcano(i, s, rng) {
-    const W = s.w, H = 30, z1 = s.cE;
-    sideWalls(s, rng, { h: H, color: 0x6a4a42, trees: false });
-    studBox(W, 2, 16, 0, -1, s.zS + 8, LC.basalt);
-    lavaPit(W, s.zS + 16, z1);
-    let z = s.zS + 16, x = 0, k = 0;
-    const tops = [];
-    while (z < z1 - 1) {
-        const len = Math.min(12 + rng() * 8, z1 - z);
-        const pw = 9 + rng() * 5;
-        x = clamp(x + (rng() * 2 - 1) * 5, -(W / 2 - pw / 2 - 3), W / 2 - pw / 2 - 3);
-        const y = [0, 1.5, 3, 1.5][k % 4];
-        studBox(pw, y + 7, len, x, (y - 7) / 2, z + len / 2, k % 2 ? LC.basalt : 0x5a4848);
-        tops.push({ x, y, z: z + len / 2, pw, len });
-        for (const sd of [-1, 1]) if (rng() < 0.6) cone(x + sd * (pw / 2 + 3.5 + rng() * 3), -6, z + rng() * len, 1.1, 6 + rng() * 3, 0x3a2a2a);
-        z += len + (k % 2 && z + len < z1 - 20 ? 2.5 + rng() * 2 : 0); k++;
+    // Cheek wrinkles of the grin
+    x.lineWidth = 6;
+    for (const s of [-1, 1]) { x.beginPath(); x.moveTo(cx + s * 118, cy + 6); x.quadraticCurveTo(cx + s * 136, cy + 34, cx + s * 120, cy + 64); x.stroke(); }
+    return texFrom(cv);
+})();
+const BALL_GEO = new T.SphereGeometry(1, 28, 20);
+const ballBodyMat = new T.MeshLambertMaterial({ color: 0x24222e, map: studWallMaterial(0xffffff, 6, 3).map });
+const ballFaceMat = new T.MeshBasicMaterial({ map: ballFaceTex, transparent: true, alphaTest: 0.05, depthWrite: false, toneMapped: false });
+export const balls = []; // one pool per stage: { s, idx, meshes: [...] }
+function buildBalls(idx, s) {
+    const b = s.balls, travel = (s.cE - s.zS + 30) / b.speed;
+    const pool = { s, idx, meshes: [] };
+    for (let n = 0; n < Math.ceil(travel / b.every) + 1; n++) {
+        const g = new T.Group();
+        const body = new T.Mesh(BALL_GEO, ballBodyMat); body.castShadow = true; g.add(body);
+        const face = new T.Mesh(BALL_GEO, ballFaceMat); face.scale.setScalar(1.01); g.add(face);
+        g.scale.setScalar(b.r);
+        g.visible = false; scene.add(g);
+        pool.meshes.push({ g, body, k: null, x: 0, y: 0, z: 0, r: b.r });
     }
-    for (let pz = s.zS + 30; pz < z1; pz += 40) for (const sd of [-1, 1]) lavaPillar(sd * (W / 2 - 2), pz + rng() * 12, H);
-    tops.forEach((p, n) => {
-        if (n % 2 === 1) meteorSpot(p.x, p.y, p.z, CFG.meteor.every * (1 + (n % 3) * 0.35), rng() * 5);
-        else if (n > 0) addPickup(i, p.x, p.y, p.z, s.pickup);
-    });
-    // Two volcanoes smoking behind the walls
-    for (const sx of [-1, 1]) {
-        const vx = sx * 95, vz = s.zS + s.len * (sx > 0 ? 0.35 : 0.7);
-        for (let l = 0; l < 6; l++) deco(60 - l * 9, 9, 60 - l * 9, vx, l * 9 + 4.5, vz, l % 2 ? 0x5a4040 : 0x4a3434);
-        const crater = new T.Mesh(UNIT, mat(0xff6a14, { neon: true })); crater.scale.set(12, 1, 12); crater.position.set(vx, 54.6, vz); scene.add(crater);
-        const top = new V3(vx, 56, vz);
-        tickers.push(() => { if (Math.abs(vz - camera.position.z) < 260 && Math.random() < 0.5) flame(top, 8, 4); });
+    balls.push(pool);
+}
+// Positions every ball for server time t (seconds). Balls roll from the top of their stage down
+// past its gate and crash; camZ skips stages far from the camera.
+export function updateBalls(t, camZ, onCrash) {
+    for (const pool of balls) {
+        const s = pool.s, b = s.balls;
+        const near = camZ > s.zS - 160 && camZ < s.zE + 120;
+        const list = near ? ballSchedule(s, t) : [];
+        pool.meshes.forEach((m, n) => {
+            const e = list[n];
+            if (!e) { m.g.visible = false; m.k = null; return; }
+            const z = s.cE - e.age * b.speed;
+            const lane = e.lane * Math.min(10, s.w / 2 - b.r - 2);
+            // On the ramps the balls keep to the floor's centre line; on the terraces they use lanes
+            const x = s.type === 'Ramps' ? s.xAt(z) : lane;
+            const y = (z < s.zS ? (pool.idx === 0 ? 0 : STAGES[pool.idx - 1].y1) : s.heightAt(z)) + b.r;
+            const crashed = z < s.zS - 24;
+            if (crashed && m.k === e.k && !m.crashed && onCrash) onCrash(m);
+            m.crashed = crashed;
+            m.k = e.k; m.x = x; m.y = y; m.z = z;
+            m.g.visible = !crashed;
+            m.g.position.set(x, y, z);
+            m.body.rotation.x = -(s.cE - z) / b.r;
+        });
     }
 }
 
-// ----- Stage 5: a sky bridge with wild pterodactyls swooping across it -----
-export const pteros = [];
-const HAZARD_PTERO = { ...PTERO_LOOK, size: 1.5 };
-function pteroLanes(s, rng) {
-    const span = s.w / 2 + 14;
-    let lane = 0;
-    for (let z = s.zS + 30; z < s.cE - 8; z += s.laneGap, lane++) {
-        const speed = s.bs * (0.8 + rng() * 0.45);
-        const count = lane % 3 === 2 ? 2 : 1;
-        const phase = rng();
-        for (let n = 0; n < count; n++) {
-            const f = buildDino(HAZARD_PTERO);
-            scene.add(f);
-            pteros.push({ f, z: z + (n ? 5 : 0), span, period: 4 * span / speed, phase: (phase + n * 0.5) % 1, x: 0, dir: 1, y: 0 });
-        }
-    }
-}
-// Positions every pterodactyl for server time t (seconds); main.js checks for hits.
-// They dip down to rider height in the middle of the bridge and climb at the edges.
-export function updatePteros(t, dt) {
-    for (const k of pteros) {
-        const u = ((t / k.period + k.phase) % 1 + 1) % 1;
-        const out = u < 0.5;
-        const f = out ? u * 2 : 2 - u * 2;
-        k.x = -k.span + 2 * k.span * f;
-        k.dir = out ? 1 : -1;
-        k.y = 1 + Math.pow(Math.abs(k.x) / k.span, 2) * 9;
-        // Model origin is at its feet; the body flies 2.2 model units (times its scale) above that
-        k.f.position.set(k.x, k.y - 2.2 * k.f.userData.size, k.z);
-        k.f.rotation.y = k.dir * Math.PI / 2;
-        if (Math.abs(k.z - camera.position.z) < 180) walkDino(k.f, dt, true, 30);
-    }
-}
-function buildPtero(i, s, rng) {
-    pteroLanes(s, rng);
-    const W = s.w, BW = 22;
-    sideWalls(s, rng, { h: 8, bottom: -6, mat: dottedWallMaterial(0xe8d4b0, s.len / 6, 2), trees: false });
-    // Wooden plank bridge with rope rails; clouds and floating islands all around
-    for (let z = s.zS; z < s.cE; z += 3) {
-        texturedBox(BW, 1, 2.8, 0, -0.5, z + 1.5, studWallMaterial((z / 3) % 2 ? LC.wood : LC.woodDark, BW / 4, 1));
-    }
-    solids.push(aabb(0, -0.5, (s.zS + s.cE) / 2, BW, 1, s.cE - s.zS));
-    for (const sx of [-1, 1]) {
-        for (let z = s.zS + 4; z < s.cE; z += 12) box(0.8, 3, 0.8, sx * (BW / 2 - 0.4), 1.5, z, LC.woodDark, { decor: true });
-        box(0.3, 0.3, s.cE - s.zS, sx * (BW / 2 - 0.4), 2.6, (s.zS + s.cE) / 2, 0xe8d4a0, { decor: true });
-    }
-    // The space beside the bridge is a long drop
-    deco(W, 1, s.len, 0, -60, s.zS + s.len / 2, 0x8ad0ff);
-    for (let n = 0; n < 26; n++) cloud((rng() < 0.5 ? -1 : 1) * (14 + rng() * 40), -18 + rng() * 14, s.zS + rng() * s.len, 0.8 + rng(), rng);
-    for (let n = 0; n < 6; n++) {
-        const ix = (n % 2 ? -1 : 1) * (60 + rng() * 30), iz = s.zS + (n + 0.5) * s.len / 6, iy = -10 + rng() * 20;
-        for (let l = 0; l < 3; l++) deco(18 - l * 5, 4, 18 - l * 5, ix, iy - l * 4, iz, l ? LC.dirt : LC.grass);
-        tree(ix, iy + 2, iz, 1.4, rng);
-    }
-    for (let n = 0; n < 9; n++) addPickup(i, (rng() * 2 - 1) * 7, 0, s.zS + 20 + (s.cE - s.zS - 30) * n / 8, s.pickup);
-}
-
-// ----- Stage 6: the golden temple of the Dino King -----
-function buildKing(i, s, rng) {
-    const W = s.w, len = s.cE - s.zS;
-    sideWalls(s, rng, { h: 36, color: 0xe0b878, trim: LC.gold });
-    studBox(W, 2, len, 0, -1, s.zS + len / 2, 0xd8c090);
-    box(12, 0.1, len, 0, 0.04, s.zS + len / 2, 0x8a1cff, { studs: true, decor: true });
-    for (let z = s.zS + 30; z < s.cE - 12; z += 26) {
-        const r = rng();
-        if (r < 0.4) studBox(W - 8, 2.4, 2, (rng() < 0.5 ? -4 : 4), 1.2, z, LC.red);
-        else if (r < 0.7) {
-            // Lava channel across the hall: jump it
-            texturedBox(W, 0.2, 3.2, 0, 0.02, z, lavaMaterial(W / 10, 1));
-            const k = aabb(0, 0.6, z, W, 1.2, 2.6); k.active = true; kills.push(k);
-        } else for (let n = 0; n < 2; n++) studBox(5, 18, 5, (rng() * 2 - 1) * 14, 9, z + n * 9, 0xc8a060);
-    }
-    // Torches burning along the walls
-    for (let z = s.zS + 14; z < s.cE; z += 22) for (const sx of [-1, 1]) {
-        box(1.2, 6, 1.2, sx * (W / 2 - 0.8), 3, z, LC.woodDark, { decor: true });
-        const at = new V3(sx * (W / 2 - 0.8), 6.6, z);
-        tickers.push(() => { if (Math.abs(at.z - camera.position.z) < 120 && Math.random() < 0.35) flame(at, 0.6, 1.1); });
-    }
-    for (let n = 0; n < 9; n++) addPickup(i, (rng() * 2 - 1) * 16, 0, s.zS + 20 + (len - 30) * n / 8, s.pickup);
-    buildChaser(s, KING_LOOK, 3.3);
-}
-
-const BUILDERS = { Carpet: buildCarpet, Terraces: buildTerraces, Ramps: buildRamps, Volcano: buildVolcano, Ptero: buildPtero, King: buildKing };
-// Surface of each stage's gate, matching the stage it leads into
-const WALL_LOOK = {
-    Terraces: () => checkerMaterial(LC.lavender, 12, 8),
-    Ramps: () => dottedWallMaterial(0xb89a7a, 12, 9),
-    Volcano: () => studWallMaterial(0x6a4a42, 20, 13),
-    Ptero: () => dottedWallMaterial(0xe8d4b0, 12, 9),
-    King: () => dottedWallMaterial(0xe0b878, 12, 9),
-};
-
+const BUILDERS = { Terraces: buildTerraces, Ramps: buildRamps };
 function buildCourse() {
+    let y = 0;
     STAGES.forEach((s, idx) => {
         const rng = rngFrom(100 + idx * 17);
+        s.y0 = y;
         BUILDERS[s.type](idx, s, rng);
+        pathLookup(s);
+        sideWalls(s, rng);
         const finish = idx === STAGES.length - 1;
         landing(idx, s, finish);
-        if (idx === 0) {
-            // Stage 1's title floats in the lobby gate
-            textPlane([{ t: s.name, c: '#ffffff', s: '#1a1f5c', px: 150 }, { t: s.sub, c: s.subColor, s: '#1a1f5c', px: 100 }], 30, 1024, new V3(0, 26, s.zS - 2), new V3(0, 26, s.zS - 12));
-        } else stageWall(STAGES[idx - 1], s, WALL_LOOK[s.type]());
-        const tr = aabb(0, 20, s.zS + 3, s.w, 60, 2);
+        stageGate(s, s.y0, idx ? STAGES[idx - 1].w : s.w);
+        buildBalls(idx, s);
+        const tr = aabb(0, s.y0 + 20, s.zS + 3, s.w, 60, 2);
         tr.enter = () => actions.enterStage(idx);
         triggers.push(tr);
         if (finish) {
-            texturedBox(s.w + 6, 90, 2, 0, 2, s.zE + 1, dottedWallMaterial(0xe0b878, 9, 15));
-            solids.push(aabb(0, 2, s.zE + 1, s.w + 6, 90, 2));
-            textPlane([{ t: 'YOU ESCAPED!', c: '#ffd028', s: '#16121f', px: 150 }, { t: 'More stages coming soon', c: '#ffffff', s: '#16121f', px: 70 }], 34, 1024, new V3(0, 24, s.zE - 0.2), new V3(0, 24, s.zE - 20));
-            // Giant golden trophy on the finish landing
-            const tz = s.zE - 6;
-            deco(6, 1.5, 6, 0, 0.75, tz, 0x7a5a20);
-            deco(2, 4, 2, 0, 3.5, tz, LC.gold);
-            deco(7, 5, 7, 0, 8, tz, LC.gold);
-            deco(8, 1, 8, 0, 10.8, tz, 0xffe36b);
+            texturedBox(s.w + 6, 90, 2, 0, s.y1 + 30, s.zE + 1, checkerMaterial(LC.lavender, 9, 15));
+            solids.push(aabb(0, s.y1 + 30, s.zE + 1, s.w + 6, 90, 2));
+            textPlane([{ t: 'YOU ESCAPED!', c: '#ffd028', s: '#16121f', px: 150 }, { t: 'More stages coming soon', c: '#ffffff', s: '#16121f', px: 70 }], 34, 1024, new V3(0, s.y1 + 22, s.zE - 0.2), new V3(0, s.y1 + 22, s.zE - 20));
+            const tz = s.zE - 6, ty = s.y1;
+            deco(6, 1.5, 6, 0, ty + 0.75, tz, 0x7a5a20);
+            deco(2, 4, 2, 0, ty + 3.5, tz, LC.gold);
+            deco(7, 5, 7, 0, ty + 8, tz, LC.gold);
+            deco(8, 1, 8, 0, ty + 10.8, tz, 0xffe36b);
         }
+        y = s.y1;
     });
 }
 

@@ -293,26 +293,16 @@ const SHAPES = {
         for (const s of [-1, 1]) cone(b.head, 0.16, 1, s * 0.55, 1.1, -0.2, d.accent, -0.6, s * -0.2);
         return b;
     },
-    // The chasers: a huge dark rex with glowing eyes and a mouth full of fire
-    chaser(g, part, d) {
-        const b = SHAPES.rex(g, part, d, { head: { eyeGlow: true, pupil: 0xff2a14, eyeWhite: 0xffe080, mouth: d.glow, mouthGlow: true, teeth: 5 } });
-        if (d.crown) {
-            part(1.5, 0.35, 1.3, 0, 1.05, 0.2, d.accent, b.head, { neon: true });
-            for (let i = 0; i < 5; i++) part(0.22, 0.6, 0.22, (i - 2) * 0.32, 1.45, 0.2 + (i % 2) * 0.3 - 0.15, d.accent, b.head, { neon: true });
-        }
-        for (let i = 0; i < 6; i++) cone(g, 0.2, 1, 0, b.seat + 0.4, 1.3 - i * 0.6, 0x3a3448);
-        return b;
-    },
 };
 
-// Builds a new dino group for a catalogue entry (dinoById[...] or one of the *_LOOK hazards)
+// Builds a new dino group for a catalogue entry (dinoById[...])
 export function buildDino(d) {
     const g = new T.Group();
     const inner = new T.Group(); g.add(inner);
     const part = maker(inner);
     const shape = SHAPES[d.shape] || SHAPES.raptor;
     const b = shape(inner, part, d);
-    if (d.glow && d.shape !== 'chaser') {
+    if (d.glow) {
         // A soft glowing stripe under OP dinos so they stand out in the shop
         const r = new T.Mesh(new T.RingGeometry(1.6, 2.1, 32), mat(d.glow, { neon: true }));
         r.rotation.x = -Math.PI / 2; r.position.y = 0.05; inner.add(r);
@@ -352,9 +342,3 @@ export function walkDino(g, dt, moving, speed) {
     }
 }
 
-// Big open-mouth roar for the chasers (k 0..1)
-export function roarDino(g, k) {
-    const u = g.userData;
-    if (u.jaw) u.jaw.rotation.x = 0.1 + k * 0.7;
-    if (u.head) u.head.rotation.x = -u.head.parent.rotation.x - k * 0.35;
-}

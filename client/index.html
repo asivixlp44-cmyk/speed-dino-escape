@@ -379,6 +379,16 @@ body.touch #tips { bottom: calc(env(safe-area-inset-bottom, 0px) + 16rem); }
 .card > .btn { font-size: 1.5rem; padding: 0.4rem 1.6rem; }
 .overlay:not([hidden]) .card, .overlay:not([hidden]) .daily-pop { animation: popIn 0.34s cubic-bezier(0.2, 1.5, 0.4, 1); }
 
+/* Race card and start countdown */
+.race-card { position: absolute; left: 50%; top: 56%; transform: translate(-50%, -50%); width: min(17rem, 70vw); gap: 0.5rem; padding: 0.9rem 1rem 0.9rem; animation: popIn 0.34s cubic-bezier(0.2, 1.5, 0.4, 1); }
+.race-card .rt { font-size: 1.35rem; font-weight: 700; color: #2a2a3a; line-height: 1.15; padding: 0 1.2rem; }
+.race-card #raceJoin { font-size: 1.4rem; padding: 0.25rem 2.2rem; }
+.race-card #raceJoin:disabled { filter: grayscale(0.4); }
+.race-card .x { width: 2.4rem; height: 2.4rem; right: -0.7rem; top: -0.7rem; font-size: 1.1rem; }
+#raceCount { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); font-size: 9rem; font-weight: 700; color: var(--yellow); pointer-events: none; }
+#raceCount.go { color: var(--green); }
+#raceCount.show { animation: goalIn 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+
 /* Daily Reward */
 .daily-pop { position: relative; width: min(46rem, 100%); display: grid; justify-items: center; gap: 0.7rem; padding: 0.6rem 0.4rem 0.8rem; }
 .daily-pop h2 { margin: 0; font-size: 3.2rem; }
@@ -513,6 +523,13 @@ body.touch #speedBuys .btn { font-size: 1.1rem; }
 
         <div id="stageTitle" style="opacity:0"><div class="n" id="stageName">Stage 1</div><div class="s o" id="stageSub">ESCAPE</div></div>
         <div id="levelBanner"><div class="a o" id="levelA">Level Up! (0-&gt;1)</div><div class="b o" id="levelB">New walking speed: 16-&gt;17</div></div>
+        <!-- "Race starting in 20s!" card from the reference -->
+        <div id="racePop" class="card race-card" hidden>
+            <button class="btn g-red x o" id="raceClose" aria-label="Close">✕</button>
+            <div class="rt" id="raceText">Race starting in 20s!</div>
+            <button class="btn g-green o" id="raceJoin">JOIN</button>
+        </div>
+        <div id="raceCount" class="o passive" hidden>3</div>
         <div id="trollBanner" class="passive" hidden><div class="t o" id="trollText">😈 Someone used FLING!</div></div>
         <div id="toasts"></div>
         <button id="promptBtn" hidden><kbd>E</kbd><span id="promptTxt"></span></button>

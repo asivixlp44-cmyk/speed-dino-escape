@@ -56,9 +56,12 @@ export class SpeedRoom extends Room {
         this.onMessage('emote', (client, m) => this.onEmote(client, m));
         this.onMessage('chat', (client, m) => this.onChat(client, m));
         this.onMessage('friends', (client, m) => this.onFriends(client, m));
+        this.onMessage('raceJoin', (client) => this.onRaceJoin(client));
 
         this.setSimulationInterval((dt) => this.tick(dt), 100);
         this.clock.setInterval(() => this.broadcastBoards(), 10000);
+        this.race = null;
+        this.clock.setInterval(() => this.raceTick(), 500);
         // Bux purchases made while the player was on another pod (or offline)
         if (USE_DB) this.clock.setInterval(() => this.applyQueuedGrants(), 5000);
     }
@@ -100,6 +103,7 @@ export class SpeedRoom extends Room {
         this.syncPublic(client.sessionId);
         client.send('hello', { now: Date.now(), bux: BUX_MODE, bloxity: uid.startsWith('legion_') });
         this.payOffline(this.sessions.get(client.sessionId));
+        if (this.race && !this.race.started) client.send('race', { startAt: this.race.startAt });
         this.sendProfile(client.sessionId);
         this.broadcastBoards(client);
         if (USE_DB) this.applyQueuedGrants();
@@ -249,7 +253,7 @@ export class SpeedRoom extends Room {
         if (!s || !m || !finite(m.x) || !finite(m.y) || !finite(m.z)) return;
         const pl = s.player;
         pl.x = clamp(m.x, -200, 200);
-        pl.y = clamp(m.y, -100, 200);
+        pl.y = clamp(m.y, -100, 600);
         pl.z = clamp(m.z, -200, 4000);
         pl.ry = finite(m.ry) ? m.ry : 0;
         pl.anim = clamp(m.a | 0, 0, 3);
@@ -285,6 +289,42 @@ export class SpeedRoom extends Room {
         const got = this.addWins(s, st.wins, true);
         this.syncPublic(client.sessionId);
         client.send('wins', { n: got });
+        const r = this.race;
+        if ((m.s | 0) === 0 && r && r.started && !r.done && r.racers.has(client.sessionId)) {
+            r.done = true;
+            this.addWins(s, CFG.race.prizeWins, false);
+            this.syncPublic(client.sessionId);
+            this.broadcast('raceEnd', { winner: s.profile.name, prize: CFG.race.prizeWins });
+        }
+    }
+
+    // ----- Race event: announced on the server clock, racers start together at the Stage 1 gate,
+    // the first racer to touch the Stage 1 Wins pad wins the prize -----
+    raceTick() {
+        const R = CFG.race, now = Date.now();
+        const cycle = Math.floor(now / 1000 / R.every), startAt = (cycle * R.every + R.countdown) * 1000;
+        if (now < startAt && (!this.race || this.race.cycle !== cycle)) {
+            this.race = { cycle, startAt, racers: new Set(), started: false, done: false };
+            this.broadcast('race', { startAt });
+        }
+        const r = this.race;
+        if (!r) return;
+        for (const id of r.racers) if (!this.sessions.has(id)) r.racers.delete(id);
+        if (!r.started && now >= r.startAt) {
+            r.started = true;
+            if (!r.racers.size) { r.done = true; return; }
+            for (const id of r.racers) this.sessions.get(id).client.send('raceGo', { racers: r.racers.size });
+        }
+        if (r.started && !r.done && now > r.startAt + R.maxTime * 1000) {
+            r.done = true;
+            this.broadcast('raceEnd', { winner: null });
+        }
+    }
+    onRaceJoin(client) {
+        const r = this.race, s = this.sessions.get(client.sessionId);
+        if (!s || !r || r.started || Date.now() >= r.startAt) return;
+        r.racers.add(client.sessionId);
+        this.toast(s, 'Joined the race! Get ready...', GOLD);
     }
 
     // Group Chest in the lobby: once every GROUP_CHEST.hours

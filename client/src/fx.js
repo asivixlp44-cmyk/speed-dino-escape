@@ -120,7 +120,49 @@ export function sparkleColumn(pos, color) {
     }
 }
 
-// Fire puff (chaser breath, meteors, lava): rises, shrinks and fades
+// Light trail streaming behind the rider, like the reference's white-blue speed trail:
+// a vertical ribbon through the last few positions, tapering and fading toward the tail
+export function makeTrail(color) {
+    const N = 26, pts = [];
+    const pos = new Float32Array(N * 2 * 3), col = new Float32Array(N * 2 * 3);
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new T.BufferAttribute(col, 3));
+    const idx = [];
+    for (let i = 0; i < N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    geo.setIndex(idx);
+    const mesh = new T.Mesh(geo, new T.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false }));
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+    const c = new T.Color(color);
+    let acc = 0;
+    return {
+        update(at, on, dt) {
+            acc += dt;
+            if (acc >= 0.03) {
+                acc = 0;
+                if (on) pts.unshift(at.clone()); else pts.pop();
+                if (pts.length > N) pts.length = N;
+            }
+            if (pts.length) pts[0].copy(on ? at : pts[0]);
+            for (let i = 0; i < N; i++) {
+                const p = pts[Math.min(i, pts.length - 1)];
+                const k = pts.length > 1 ? 1 - i / (pts.length - 1) : 0;
+                const h = i < pts.length ? 1.1 * k : 0;
+                for (let s = 0; s < 2; s++) {
+                    const o = (i * 2 + s) * 3;
+                    if (p) { pos[o] = p.x; pos[o + 1] = p.y + (s ? h : -h); pos[o + 2] = p.z; }
+                    col[o] = c.r * k * 0.9; col[o + 1] = c.g * k * 0.9; col[o + 2] = c.b * k * 0.9;
+                }
+            }
+            geo.attributes.position.needsUpdate = true;
+            geo.attributes.color.needsUpdate = true;
+            mesh.visible = pts.length > 1;
+        },
+    };
+}
+
+// Fire puff (the troll balls' fiery grin): rises, shrinks and fades
 export function flame(at, spread, size, vel) {
     const p = new V3(at.x + (Math.random() - 0.5) * spread, at.y + (Math.random() - 0.5) * spread * 0.5, at.z + (Math.random() - 0.5) * spread);
     const v = vel ? vel.clone().multiplyScalar(0.7 + Math.random() * 0.6) : new V3(0, 0, 0);

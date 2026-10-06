@@ -70,6 +70,7 @@ export function updateHud(P, online) {
     updateOffer();
     if (!$('#modal').hidden && modalKind === 'free') renderFree();
     if (!$('#daily').hidden) renderDaily();
+    if (raceStartAt) updateRace();
 }
 
 // Rotating offer at the top of the screen
@@ -126,6 +127,37 @@ export function trollBanner(kind, by) {
     clearTimeout(trollBanner.t);
     trollBanner.t = setTimeout(() => { b.hidden = true; }, 3200);
 }
+// ----- Race event card: counts down to the start; JOIN signs you up -----
+let raceStartAt = 0, raceJoined = false, raceClosed = false;
+export function showRace(startAt) {
+    raceStartAt = startAt; raceJoined = false; raceClosed = false;
+    const j = $('#raceJoin');
+    j.disabled = false; j.textContent = 'JOIN';
+    updateRace();
+}
+function updateRace() {
+    const left = Math.ceil((raceStartAt - net.now()) / 1000);
+    const show = left > 0 && !raceClosed;
+    $('#racePop').hidden = !show;
+    if (show) $('#raceText').textContent = 'Race starting in ' + left + 's!';
+}
+$('#raceJoin').addEventListener('click', () => {
+    if (raceJoined) return;
+    raceJoined = true;
+    net.send('raceJoin');
+    const j = $('#raceJoin'); j.disabled = true; j.textContent = 'JOINED ✓';
+});
+$('#raceClose').addEventListener('click', () => { raceClosed = true; $('#racePop').hidden = true; });
+// Big "3, 2, 1, GO!" in the middle of the screen
+export function raceCountdown(n) {
+    const el = $('#raceCount');
+    if (n === null) { el.hidden = true; return; }
+    el.hidden = false;
+    el.textContent = n > 0 ? String(n) : 'GO!';
+    el.classList.toggle('go', n <= 0);
+    el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
+
 // Treadmill earnings while the player was away
 export function showOffline(m) {
     const h = Math.floor(m.secs / 3600), mm = Math.floor((m.secs % 3600) / 60);
@@ -138,7 +170,7 @@ $('#offlineOk').addEventListener('click', () => { $('#offlinePop').hidden = true
 let titleTimer;
 export function showStageTitle(s) {
     $('#stageName').textContent = s.name;
-    const sub = $('#stageSub'); sub.textContent = s.sub; sub.style.color = s.subColor;
+    const sub = $('#stageSub'); sub.textContent = s.sub || ''; sub.style.color = s.subColor || '';
     const t = $('#stageTitle'); t.style.opacity = 1;
     t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
     clearTimeout(titleTimer);
@@ -184,7 +216,7 @@ let reviveTimer;
 export function showRevive(stage) {
     setHtml($('#revivePrice'), 'ONLY ' + bux(PRODUCTS.Revive.price));
     const s = STAGES[stage];
-    $('#reviveReached').textContent = s ? 'You reached ' + s.name + '!' : 'You fell!';
+    $('#reviveReached').textContent = s ? 'You reached Stage ' + (stage + 1) + '!' : 'You fell!';
     $('#revive').hidden = false;
     let left = CFG.reviveTimeout;
     $('#reviveTimer').textContent = 'Back to the lobby in ' + left + 's';

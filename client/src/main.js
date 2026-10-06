@@ -4,21 +4,21 @@ import {
     billboard, buildRig, ridePose, buildAuraFx, updateAuraFx, burst, confettiAt,
     floatText, updateEffects, lerpAngle,
 } from './engine.js';
-import { buildDino, walkDino, roarDino } from './dino.js';
+import { buildDino, walkDino } from './dino.js';
 import { S, actions, net } from './state.js';
 import { initAudio, startMusic, sfx, setVolume } from './audio.js';
 import * as BX from './bloxity.js';
 import { createAvatar, loadBase, packAvatar, unpackAvatar, avatarStats } from './avatar.js';
 import { updateMaterials } from './textures.js';
 import { pad, pollGamepad, rumble, onGamepadConnection } from './gamepad.js';
-import { render, setSpeedLines, updateFx, dust, sparkleColumn, ring, fireworks, setQuality, flame, leaves } from './fx.js';
+import { render, setSpeedLines, updateFx, dust, sparkleColumn, ring, fireworks, setQuality, flame, leaves, makeTrail } from './fx.js';
 import {
     buildWorld, SPAWN, pickups, beltTex, refreshShop, renderBoards, treadLocked, updateLobbySigns,
-    spikes, updateSpikes, meteors, updateMeteors, pteros, updatePteros,
+    balls, updateBalls,
 } from './world.js';
 import {
     updateHud, toast, levelUp, showStageTitle, buy, showRevive, hideRevive, closeModal, openModal,
-    refreshModal, promptEl, promptTxtEl, showGoal, animateCounters, showOffline, openDailyOnJoin, trollBanner,
+    refreshModal, promptEl, promptTxtEl, showGoal, animateCounters, showOffline, openDailyOnJoin, trollBanner, showRace, raceCountdown,
 } from './ui.js';
 import {
     CFG, STAGES, TREADMILLS, TREAD_GEO, dinoById, auraById, KITS, SKINS, STARTER_DINO, maxSpeedFor, fmt, clamp,
@@ -32,7 +32,7 @@ const P = {
     pos: SPAWN.clone(), vel: new V3(), push: new V3(), onGround: false, ground: null, facing: 0,
     dead: false, shield: 0, stamina: CFG.staminaMax, staminaIdle: 0, sprinting: false,
     lastSafe: SPAWN.clone(), safeTimer: 0, stage: -1, moving: false, animPhase: 0, lockToastT: -9,
-    squash: 1, squashV: 0, airTime: 0, lastStep: 0, slowUntil: 0, tinyUntil: 0,
+    squash: 1, squashV: 0, airTime: 0, lastStep: 0, slowUntil: 0, tinyUntil: 0, frozenUntil: 0,
 };
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let shake = 0;
@@ -169,7 +169,6 @@ function teleport(pos, yaw) {
     P.lastSafe.copy(pos);
     P.facing = yaw || 0; cam.yaw = (yaw || 0) + Math.PI;
     for (const t of triggers) t.inside = overlapsBox(t, pos.x, pos.y, pos.z);
-    resetChase();
     sendMove(true);
 }
 function teleportLobby() { P.stage = -1; teleport(SPAWN, 0); }
@@ -199,7 +198,6 @@ function die() {
     P.dead = true; deaths++;
     burst(P.pos.clone().add(new V3(0, 2.5, 0)), 0x46ec50);
     sfx('death'); addShake(0.9); rumble(1, 400);
-    resetChase();
     sendMove(true);
     showRevive(P.stage);
 }
@@ -212,88 +210,53 @@ actions.revive = (atSpot) => {
         teleport(P.lastSafe.clone(), P.facing);
         P.stage = stage;
         P.shield = CFG.shieldTime;
-        const s = STAGES[stage];
-        if (s && s.chase) startChase(stage);
     } else teleportLobby();
 };
 
 // =====================================================================================
-// Stage runtime: spike traps, meteors and pterodactyls (server clock), T-Rex chases (local)
+// Stage runtime: giant troll balls rolling down every stage (server clock, world.js)
 // =====================================================================================
-// Stage 5 pterodactyls swoop across the bridge on the server clock (world.js); touching one is
-// a KO. They dip to rider height mid-bridge; a jump at the right moment clears them.
-function updatePteroHits(dt) {
-    updatePteros(net.now() / 1000, dt);
-    if (P.dead || P.shield > 0 || P.stage < 0 || STAGES[P.stage].type !== 'Ptero') return;
-    for (const k of pteros) {
-        if (Math.abs(P.pos.x - k.x) < 2.8 + HW && Math.abs(P.pos.z - k.z) < 3.2 + HW && P.pos.y < k.y + 1.2 && P.pos.y + PH > k.y - 0.8) { sfx('chomp'); die(); return; }
+// A ball touching the rider is a KO. The nearest ball rolling at you turns the screen edges
+// red with a distance warning and rumbles; balls spit fire from their grin.
+const ballAt = new V3(), fireVel = new V3(0, -2, -20);
+let ballRoarT = 0;
+function updateBallHits(dt) {
+    updateBalls(net.now() / 1000, camera.position.z, onBallCrash);
+    let nearest = -1;
+    for (const pool of balls) for (const m of pool.meshes) {
+        if (!m.g.visible) continue;
+        if (Math.abs(m.z - camera.position.z) < 140 && Math.random() < 0.8) {
+            ballAt.set(m.x, m.y - m.r * 0.3, m.z - m.r * 0.92);
+            flame(ballAt, m.r * 0.35, m.r * 0.4, fireVel);
+        }
+        if (P.dead) continue;
+        const dx = m.x - P.pos.x, dy = m.y - (P.pos.y + 2.5), dz = m.z - P.pos.z;
+        if (P.shield <= 0 && dx * dx + dy * dy + dz * dz < (m.r + 1.6) ** 2) { sfx('chomp'); addShake(1); die(); return; }
+        if (dz > -3 && Math.abs(dx) < m.r + 5 && Math.abs(dy) < 25 && (nearest < 0 || dz < nearest)) nearest = dz;
     }
+    setBallWarning(P.dead || P.stage < 0 ? -1 : nearest);
+    ballRoarT -= dt;
+    if (nearest >= 0 && nearest < 30 && ballRoarT <= 0 && P.stage >= 0) { ballRoarT = 3.5; sfx('roar'); rumble(0.4, 250); addShake(0.25); }
 }
-
-// Stage 4 meteor impact: thud, dust and a shake that falls off with distance
-function onMeteorLand(m) {
-    if (!running || P.stage < 0) return;
-    const d = Math.hypot(m.x - P.pos.x, m.z - P.pos.z);
-    if (d > 60) return;
-    sfx('land'); if (d < 35) sfx('hit');
-    addShake(0.5 * (1 - d / 60));
-    dust(new V3(m.x, m.y, m.z), 8, 1.6);
+// A ball smashing into the floor at the bottom of its stage
+function onBallCrash(m) {
+    const d = Math.abs(m.z - P.pos.z);
+    if (d > 90) return;
+    sfx('hit');
+    addShake(0.45 * (1 - d / 90));
+    burst(new V3(m.x, m.y, m.z), 0x24222e, 1.4, 22);
+    dust(new V3(m.x, m.y - m.r, m.z), 10, 2);
 }
-
-const chase = { active: false, stage: null, z: 0, wait: 0, roar: 0, fire: 0 };
-function resetChase() {
-    if (chase.stage) { chase.stage.chaseMesh.visible = false; chase.stage.chaseKill.active = false; }
-    chase.active = false; chase.stage = null;
-    setChaseWarning(-1);
-}
-// Red screen edges and a distance readout while the chaser is close behind
+// Red screen edges and a distance readout while a ball is rolling at you
 let warnShown = -2;
-function setChaseWarning(gap) {
+function setBallWarning(gap) {
     const el = $('#chaseWarn'), v = $('#chaseVignette');
     const near = gap >= 0 && gap < 45;
     if (!near) { if (warnShown !== -1) { el.hidden = true; v.style.opacity = 0; warnShown = -1; } return; }
     const m = Math.max(0, Math.round(gap));
-    if (m !== warnShown) { el.hidden = false; el.textContent = (chase.stage && chase.stage.type === 'King' ? '👑 DINO KING ' : '🦖 T-REX ') + m + 'm BEHIND!'; warnShown = m; }
+    if (m !== warnShown) { el.hidden = false; el.textContent = '😈 TROLL BALL ' + m + 'm AHEAD!'; warnShown = m; }
     el.classList.toggle('danger', gap < 15);
     v.style.opacity = Math.min(1, (45 - gap) / 35).toFixed(2);
-}
-function startChase(idx) {
-    resetChase();
-    const s = STAGES[idx];
-    Object.assign(chase, { active: true, stage: s, z: s.zS - 6, wait: s.chaseWait, roar: 1, fire: 0 });
-    s.chaseMesh.visible = true; s.chaseKill.active = true;
-    sfx('roar'); addShake(0.7);
-}
-const mouthAt = new V3(), fireVel = new V3();
-function updateChase(dt) {
-    if (!chase.active) return;
-    const s = chase.stage;
-    if (chase.wait > 0) chase.wait -= dt;
-    else {
-        // Rubber band: races in from far away, then creeps up a little faster than you walk.
-        // Sprint to stay ahead; stop or get stuck and it catches you.
-        const walk = walkSpeed() / (P.sprinting ? CFG.sprintMult : 1);
-        const gap = P.pos.z - chase.z, c = s.chase;
-        chase.z = Math.min(s.cE - 2, chase.z + walk * Math.max(c.base, 1 + (gap - c.near) * c.k) * dt);
-    }
-    const gap = P.pos.z - chase.z;
-    setChaseWarning(P.dead ? -1 : gap);
-    const m = s.chaseMesh, gy = s.heightAt ? s.heightAt(chase.z) : 0;
-    m.position.set(0, gy, chase.z - m.userData.nose);
-    walkDino(m, dt, chase.wait <= 0, 60);
-    // Roars every few seconds while it's close, breathing fire from its mouth
-    chase.roar -= dt;
-    if (chase.roar <= 0 && gap < 40) { chase.roar = 4 + Math.random() * 3; chase.fire = 1.2; sfx('roar'); addShake(gap < 20 ? 0.6 : 0.3); rumble(0.5, 300); }
-    if (chase.fire > 0) {
-        chase.fire -= dt;
-        roarDino(m, Math.min(1, chase.fire * 2));
-        mouthAt.copy(m.userData.mouth).add(m.position);
-        fireVel.set(0, -2, 26);
-        for (let i = 0; i < 3; i++) flame(mouthAt, 2, 3.2, fireVel);
-    }
-    s.chaseKill.min.z = chase.z - 2; s.chaseKill.max.z = chase.z + 2;
-    s.chaseKill.min.y = gy - 10; s.chaseKill.max.y = gy + 60;
-    if (chase.z >= s.cE - 2) resetChase();
 }
 
 // =====================================================================================
@@ -307,7 +270,6 @@ actions.enterStage = (idx) => {
     sfx('whoosh'); sfx('gate');
     baseFov += reduceMotion ? 0 : 14;
     const fl = $('#flash'); fl.classList.remove('show', 'gate'); void fl.offsetWidth; fl.classList.add('show', 'gate');
-    if (s.chase) startChase(idx); else resetChase();
 };
 actions.pad = (idx) => {
     sendMove(true);
@@ -326,6 +288,18 @@ actions.shop = (d) => {
     if (!S.owned[d.id] && S.wins < d.req) { toast('Need ' + fmt(d.req - S.wins) + ' more Wins!', '#ff5a5a'); return; }
     net.send('shop', { id: d.id });
 };
+
+// Race start: everyone who joined lines up in front of the Stage 1 gate, frozen for a
+// 3-2-1 countdown, then GO (the server pays the first to touch the Stage 1 Wins pad)
+function startRace() {
+    if (autoTrain) setAutoTrain(false);
+    if (P.dead) actions.revive(false);
+    P.stage = -1;
+    teleport(new V3((Math.random() * 2 - 1) * 8, 0.5, STAGES[0].zS - 12), 0);
+    P.frozenUntil = clockT + 3;
+    for (let n = 3; n >= 0; n--) setTimeout(() => { raceCountdown(n); sfx(n ? 'click' : 'gate'); }, (3 - n) * 1000);
+    setTimeout(() => raceCountdown(null), 4200);
+}
 
 // Troll Menu effects bought by another player (m.s is the buyer's session; we're never the buyer)
 function applyTroll(m) {
@@ -561,6 +535,13 @@ async function connect(name) {
     });
     room.onMessage('toast', (m) => toast(m.text, m.color));
     room.onMessage('offline', (m) => showOffline(m));
+    room.onMessage('race', (m) => showRace(m.startAt));
+    room.onMessage('raceGo', () => startRace());
+    room.onMessage('raceEnd', (m) => {
+        raceCountdown(null);
+        if (m.winner) { toast('🏁 ' + m.winner + ' won the race! +' + m.prize + ' Wins', '#ffd028'); if (m.winner === S.name) { sfx('cheer'); fireworks(P.pos, 6, () => sfx('firework')); } }
+        else toast('🏁 Race over - nobody finished!', '#ffb51c');
+    });
     room.onMessage('troll', (m) => applyTroll(m));
     room.onMessage('trollSent', (m) => { sfx('roar'); trollBanner(m.kind, 'You'); });
     room.onMessage('levelUp', (m) => {
@@ -815,6 +796,7 @@ promptEl.addEventListener('click', usePrompt);
 const botInput = { f: 0, r: 0, jump: false, sprint: false };
 let clockT = 0, hudT = 0, online = 1;
 const tmpF = new V3(), tmpR = new V3(), mv = new V3();
+const trail = makeTrail(0xbfefff), trailAt = new V3();
 
 function update(dt) {
     clockT += dt;
@@ -831,7 +813,7 @@ function update(dt) {
     tmpR.set(Math.cos(cam.yaw), 0, -Math.sin(cam.yaw));
     mv.set(0, 0, 0).addScaledVector(tmpF, f).addScaledVector(tmpR, r);
     if (mv.lengthSq() > 1) mv.normalize();
-    if (P.dead) mv.set(0, 0, 0);
+    if (P.dead || clockT < P.frozenUntil) mv.set(0, 0, 0);
     // Any movement input hands control back to the player (small dead zone for stick drift)
     if (autoTrain && (Math.abs(f) > 0.2 || Math.abs(r) > 0.2)) { setAutoTrain(false); toast('Auto Train OFF', '#c28cff'); }
     const tread = P.onGround && P.ground && P.ground.tread;
@@ -882,7 +864,7 @@ function update(dt) {
         else if (P.moving) P.facing = lerpAngle(P.facing, Math.atan2(mv.x, mv.z), 1 - Math.exp(-dt * 14));
 
         if (P.shield > 0) P.shield -= dt;
-        if (P.pos.y < CFG.voidY) { P.shield = 0; die(); }
+        if (P.pos.y < (P.stage >= 0 ? STAGES[P.stage].y0 : 0) + CFG.voidY) { P.shield = 0; die(); }
         for (const k of kills) {
             if (!k.active) continue;
             if (k.max.x > P.pos.x - HW + 0.2 && k.min.x < P.pos.x + HW - 0.2 && k.max.y > P.pos.y + 0.1 && k.min.y < P.pos.y + PH && k.max.z > P.pos.z - HW + 0.2 && k.min.z < P.pos.z + HW - 0.2) { die(); break; }
@@ -896,7 +878,7 @@ function update(dt) {
             tr.inside = inside;
             if (P.dead) break;
         }
-        if (P.pos.z < 70 && P.stage !== -1) { P.stage = -1; resetChase(); }
+        if (P.pos.z < STAGES[0].zS && P.stage !== -1) P.stage = -1;
 
         // Shoe pickups: collected locally, Speed granted by the server
         for (const p of pickups) {
@@ -917,12 +899,8 @@ function update(dt) {
         }
     }
 
-    const st = net.now() / 1000;
     if (S.name && S.name !== nameLabelText) { nameLabelText = S.name; headLabel.userData.set([{ t: S.name, c: '#ffffff', s: '#16121f', px: 64 }]); }
-    updateSpikes(st);
-    updateMeteors(st, onMeteorLand);
-    updateChase(dt);
-    updatePteroHits(dt);
+    updateBallHits(dt);
     updateEffects(dt);
     updateFx(dt);
     updateMaterials(dt);
@@ -945,6 +923,8 @@ function update(dt) {
     const hs = P.moving ? walkSpeed() : 0;
     P.animPhase += dt * (P.onGround ? Math.min(18, 4 + hs * 0.2) : 0);
     animateRider(rig, dt, t, P.moving, localAvatar, hs, P.onGround);
+    trailAt.set(-Math.sin(P.facing) * 2.4, 3.4 * (P.tiny || 1), -Math.cos(P.facing) * 2.4).add(P.pos);
+    trail.update(trailAt, P.moving && !P.dead && rig.visible, dt);
     const stepN = Math.floor(P.animPhase / Math.PI);
     if (P.onGround && P.moving && !P.dead && stepN !== P.lastStep) {
         sfx('step');
@@ -988,7 +968,7 @@ function frame(now) {
     pollGamepad();
     padButtons();
     if (running) { update(dt); updateSprintHint(); }
-    else { beltTex.offset.x = (beltTex.offset.x + dt * 0.75) % 1; updateSpikes(now / 1000); }
+    else { beltTex.offset.x = (beltTex.offset.x + dt * 0.75) % 1; updateBalls(now / 1000, camera.position.z); }
     updateCamera(dt);
     render();
     requestAnimationFrame(frame);
@@ -1139,8 +1119,7 @@ if (import.meta.env.DEV) {
         teleport: (x, y, z) => teleport(new V3(x, y, z), 0),
         enter: (i) => actions.enterStage(i),
         hazards: () => ({
-            pteros: pteros.map((k) => [Math.round(k.x), Math.round(k.y), Math.round(k.z)]), chase: chase.active ? chase.z : null,
-            spikesUp: spikes.filter((s) => s.k.active).length, meteorsHot: meteors.filter((m) => m.k.active).length,
+            balls: balls.flatMap((p) => p.meshes.filter((m) => m.g.visible).map((m) => [p.idx, Math.round(m.x), Math.round(m.y), Math.round(m.z)])),
         }),
         buildDino, dinoById, net, buy, applyTroll, deaths: () => deaths,
         look: (yaw, pitch, dist) => { cam.yaw = yaw; cam.pitch = pitch; cam.dist = dist; },
