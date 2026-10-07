@@ -117,7 +117,7 @@ button:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 #jumpBtn, #sprintBtn { position: absolute; border-radius: 50%; pointer-events: auto; touch-action: none; font-size: 1rem; }
 #jumpBtn { right: max(1.5rem, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem); width: 6rem; height: 6rem; }
 #sprintBtn { right: calc(max(1.5rem, env(safe-area-inset-right, 0px)) + 6.8rem); bottom: calc(env(safe-area-inset-bottom, 0px) + 1.2rem); width: 4.6rem; height: 4.6rem; }
-#sprintBtn.on, #btnAuto.on { filter: brightness(1.3); outline: 3px solid var(--white); }
+#sprintBtn.on { filter: brightness(1.3); outline: 3px solid var(--white); }
 body.touch #bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem); width: min(20rem, 46vw); }
 @media (max-width: 600px) {
     body.touch #bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 11.5rem); width: min(22rem, 78vw); }
@@ -194,7 +194,6 @@ body.touch #tips { bottom: calc(env(safe-area-inset-bottom, 0px) + 16rem); }
 
 /* Short landscape phones: three columns keep the buttons clear of the joystick */
 @media (max-height: 460px) {
-    #leftCol { grid-template-columns: repeat(3, 4.6rem); top: 44%; }
     .pbtn { justify-content: center; }
     .pbtn .price { display: none; }
 }
@@ -285,7 +284,7 @@ body.touch #tips { bottom: calc(env(safe-area-inset-bottom, 0px) + 16rem); }
 @media (max-width: 480px) { .set-row { grid-template-columns: 1fr; } }
 
 @media (prefers-reduced-motion: reduce) {
-    .logo, .tag, .play, #offer, #offer::after, .bar .fill::after, #goalBanner .rays { animation: none !important; }
+    .logo, .tag, .play, #offer, #offer::after, .bar .fill::after, #goalBanner .rays, .rbx::after, .g-rainbow { animation: none !important; }
     .btn, .sq .ic { transition: none; }
 }
 
@@ -296,14 +295,41 @@ body.touch #tips { bottom: calc(env(safe-area-inset-bottom, 0px) + 16rem); }
 @keyframes rainbow { to { background-position: 200% 0; } }
 
 /* Left: four big buttons + a slimmer column of extras */
-#leftCol { display: flex; gap: 0.5rem; align-items: flex-start; grid-template-columns: none; top: 52%; }
-#leftCol .main, #leftCol .side { display: grid; gap: 0.55rem; }
-.sq.big { width: 5.4rem; height: 5.4rem; border-radius: 1rem; }
-.sq.big .ic { font-size: 2.5rem; filter: drop-shadow(0 0.15rem 0 rgba(0, 0, 0, 0.35)); }
-.sq.big .lb { font-size: 1.15rem; }
-#leftCol .side .sq { width: 4rem; height: 4rem; }
-#leftCol .side .sq .ic { font-size: 1.5rem; }
-#leftCol .side .sq .lb { font-size: 0.75rem; }
+/* Left column, drawn like the reference's Roblox buttons: square gradient tiles with a faint
+   stud-square pattern, a thick black outline, a chunky outlined icon and a bold outlined label */
+#leftCol { display: grid; grid-template-columns: none; gap: 0.32rem; top: 50%; --tile: 5.6rem; }
+.rbx { position: relative; width: var(--tile); height: var(--tile); padding: 0; border: 0.22rem solid var(--ink); border-radius: 0.75rem; cursor: pointer; overflow: visible;
+    background-image: var(--studs), var(--bg); background-size: 1.4rem 1.4rem, 100% 100%;
+    box-shadow: inset 0 0.22rem 0 rgba(255, 255, 255, 0.35), inset 0 -0.3rem 0 rgba(0, 0, 0, 0.18), 0 0.22rem 0 var(--ink), 0 0.45rem 0.6rem rgba(0, 0, 0, 0.25);
+    transition: transform 0.18s cubic-bezier(0.34, 1.8, 0.5, 1), filter 0.15s ease; }
+.rbx { --studs: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Crect x='3.5' y='3.5' width='17' height='17' rx='3' fill='none' stroke='rgba(0,0,0,0.10)' stroke-width='2.2'/%3E%3Cpath d='M4.5 15 V6 Q4.5 4.5 6 4.5 H15' fill='none' stroke='rgba(255,255,255,0.22)' stroke-width='1.6'/%3E%3C/svg%3E"); }
+.rbx .ic { position: absolute; left: 50%; top: 4%; width: 74%; height: 74%; transform: translateX(-50%); filter: drop-shadow(0 0.12rem 0 rgba(0, 0, 0, 0.3)); transition: transform 0.25s cubic-bezier(0.34, 1.8, 0.5, 1); }
+.rbx .lb { position: absolute; left: 0; right: 0; bottom: 6%; text-align: center; font-size: 1.3rem; font-weight: 700; line-height: 1; letter-spacing: -0.01em; color: #fff;
+    text-shadow: -0.12rem -0.12rem 0 var(--ink), 0.12rem -0.12rem 0 var(--ink), -0.12rem 0.12rem 0 var(--ink), 0.12rem 0.12rem 0 var(--ink), 0 0.14rem 0 var(--ink), 0 -0.14rem 0 var(--ink), 0.14rem 0 0 var(--ink), -0.14rem 0 0 var(--ink), 0 0.2rem 0 var(--ink); }
+.rb-shop { --bg: linear-gradient(#ffe84a 0%, #ffb51c 55%, #ff8a14 100%); }
+.rb-shop .lb { color: #fff23a; }
+.rb-rebirth { --bg: linear-gradient(#8ae8ff 0%, #3ab4ff 55%, #1a78e8 100%); }
+.rb-auras { --bg: linear-gradient(#d68aff 0%, #a84aff 55%, #7a24d8 100%); }
+.rb-free { --bg: conic-gradient(from 210deg at 50% 50%, #ff3c5a, #ff8a1e, #ffe83a, #46ec50, #28d8ff, #3a6aff, #a84aff, #ff4ad8, #ff3c5a); }
+.rb-free::before { content: ''; position: absolute; inset: 14%; border-radius: 0.5rem; background: radial-gradient(circle, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 72%); pointer-events: none; }
+/* A sheen sweeps across each tile now and then */
+.rbx::after { content: ''; position: absolute; inset: 0; border-radius: 0.55rem; background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.45) 50%, transparent 62%) no-repeat; background-size: 250% 100%; background-position: 160% 0; animation: tileShine 6s ease-in-out infinite; pointer-events: none; }
+.rb-rebirth::after { animation-delay: 0.25s; } .rb-auras::after { animation-delay: 0.5s; } .rb-free::after { animation-delay: 0.75s; }
+@keyframes tileShine { 0%, 82% { background-position: 160% 0; } 100% { background-position: -60% 0; } }
+.rbx:hover { transform: translateY(-2px) scale(1.06); filter: brightness(1.07); }
+.rbx:hover .ic { transform: translateX(-50%) rotate(-8deg) scale(1.08); }
+.rbx:active { transform: translateY(2px) scale(0.93); transition-duration: 0.06s; }
+.rbx .badge { top: -0.45rem; right: -0.45rem; z-index: 1; }
+.rbx:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+/* Our extras: small tiles in the same style, top-right under the stats */
+#quickRow { position: absolute; right: max(1rem, env(safe-area-inset-right, 0px)); top: calc(env(safe-area-inset-top, 0px) + 7.2rem); display: flex; gap: 0.35rem; }
+.qb { position: relative; width: 2.9rem; height: 2.9rem; padding: 0.3rem; border: 0.18rem solid var(--ink); border-radius: 0.6rem; cursor: pointer; background: linear-gradient(#ffffff, #d8e2f2);
+    box-shadow: inset 0 -0.2rem 0 rgba(0, 0, 0, 0.12), 0 0.18rem 0 var(--ink); transition: transform 0.18s cubic-bezier(0.34, 1.8, 0.5, 1); }
+.qb svg { width: 100%; height: 100%; display: block; }
+.qb:hover { transform: translateY(-2px) scale(1.08); }
+.qb:active { transform: translateY(1px) scale(0.92); }
+.qb .badge { top: -0.45rem; right: -0.45rem; }
+#btnAuto.on { background: linear-gradient(#9cff8a, #28c43c); outline: 3px solid var(--white); }
 
 /* Top centre: Troll Menu pill */
 #btnTroll { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 0.7rem); transform: translateX(-50%); display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 1.1rem 0.25rem 0.4rem; font-size: 1.45rem; border-radius: 1.2rem; background: linear-gradient(#a24aff, #6a14d8); }
@@ -413,12 +439,9 @@ body.touch #tips { bottom: calc(env(safe-area-inset-bottom, 0px) + 16rem); }
 
 /* Phones and touch */
 @media (max-width: 700px), (max-height: 460px) {
-    .sq.big { width: 4.2rem; height: 4.2rem; }
-    .sq.big .ic { font-size: 1.8rem; }
-    .sq.big .lb { font-size: 0.85rem; }
-    #leftCol .side .sq { width: 3.3rem; height: 3.3rem; }
-    #leftCol .side .sq .ic { font-size: 1.2rem; }
-    #leftCol .side .sq .lb { font-size: 0.6rem; }
+    #leftCol { --tile: 4.3rem; }
+    .rbx .lb { font-size: 1rem; }
+    .qb { width: 2.4rem; height: 2.4rem; }
     #btnTroll { font-size: 1.1rem; }
     #btnTroll .devil { width: 2rem; height: 2rem; font-size: 1.4rem; }
     #rightCol { width: 7.6rem; }
@@ -433,8 +456,8 @@ body.touch #winsBox .wins, body.touch #winsBox .cup { font-size: 1.8rem; }
 body.touch #winsBox .fboost { font-size: 0.85rem; }
 body.touch #speedBuys .btn { font-size: 1.1rem; }
 @media (max-height: 460px) {
-    #leftCol { top: 50%; }
-    #leftCol .side { display: none; }
+    #leftCol { top: 50%; --tile: 3.7rem; gap: 0.25rem; }
+    .rbx .lb { font-size: 0.85rem; }
     #offer { display: none !important; }
 }
 </style>
@@ -476,19 +499,74 @@ body.touch #speedBuys .btn { font-size: 1.1rem; }
         <div id="goalBanner" class="passive" hidden><div class="rays"></div><div class="goal o">ESCAPED!</div><div class="sub o" id="goalSub">+1 Wins</div></div>
 
         <!-- Left: the reference's four big buttons, our extras in a slimmer column beside them -->
+        <!-- Left: the reference's four buttons, drawn like the Roblox ones: gradient tile with a
+             stud pattern, thick black outline, chunky outlined icon, bold outlined label -->
         <div id="leftCol">
-            <div class="main">
-                <button class="btn sq big g-orange" id="btnStore"><span class="ic">🛍️</span><span class="lb o">Shop</span></button>
-                <button class="btn sq big g-red" id="btnRebirth"><span class="ic">🔄</span><span class="lb o">Rebirth</span><span class="badge" id="rebirthBadge" hidden>!</span></button>
-                <button class="btn sq big g-purple" id="btnAuras"><span class="ic">⭐</span><span class="lb o">AURAS</span></button>
-                <button class="btn sq big g-rainbow" id="btnFree"><span class="ic">🎁</span><span class="lb o" id="freeLb">FREE</span><span class="badge" id="freeBadge" hidden>!</span></button>
-            </div>
-            <div class="side">
-                <button class="btn sq g-blue" id="btnDaily"><span class="ic">📅</span><span class="lb o1">Daily</span><span class="badge" id="dailyBadge" hidden>!</span></button>
-                <button class="btn sq g-pink" id="btnFriends"><span class="ic">👥</span><span class="lb o1">Friends</span></button>
-                <button class="btn sq g-blue" id="btnWardrobe"><span class="ic">👕</span><span class="lb o1">Avatar</span></button>
-                <button class="btn sq g-green" id="btnAuto" title="Train on your best treadmill while AFK"><span class="ic">🏃</span><span class="lb o1">Auto Train</span></button>
-            </div>
+            <button class="rbx rb-shop" id="btnStore" aria-label="Shop">
+                <svg class="ic" viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M30 44 L37 13 L69 17 L66 46" fill="none" stroke="#16121f" stroke-width="13" stroke-linejoin="round" stroke-linecap="round"/>
+                    <path d="M30 44 L37 13 L69 17 L66 46" fill="none" stroke="#a9c2dc" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+                    <path d="M33 40 L38 18" stroke="#e4f0ff" stroke-width="2.5" stroke-linecap="round"/>
+                    <path d="M14 46 L86 46 L76 88 L24 88 Z" fill="#ff8a1e" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M58 46 L86 46 L76 88 L54 88 Z" fill="#f06a14"/>
+                    <path d="M9 37 L91 37 L88 50 L12 50 Z" fill="#ffb53a" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M18 40 L82 40 L81 45 L19 45 Z" fill="#e85a10"/>
+                    <path d="M14 46 L86 46 L76 88 L24 88 Z" fill="none" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M66 54 L76 57 L67 60 Z" fill="#fff"/>
+                </svg>
+                <span class="lb o">Shop</span>
+            </button>
+            <button class="rbx rb-rebirth" id="btnRebirth" aria-label="Rebirth">
+                <svg class="ic" viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M84 50 C84 76 58 90 34 80 L30 92 L10 62 L44 56 L39 68 C55 74 68 64 69 50 Z" fill="#e2f4ff" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M69 50 C68 64 55 74 39 68 L41 63 C53 66 62 60 64 50 Z" fill="#9ccfee"/>
+                    <path d="M16 52 C16 26 44 10 68 22 L72 10 L92 40 L57 46 L62 34 C46 28 32 38 31 52 Z" fill="#e8304a" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M22 46 C24 28 42 18 60 22 L58 27 C42 24 30 32 28 46 Z" fill="#ff6a80"/>
+                    <path d="M24 44 L28 34 L30 42 Z" fill="#fff"/>
+                </svg>
+                <span class="lb o">Rebirth</span>
+                <span class="badge" id="rebirthBadge" hidden>!</span>
+            </button>
+            <button class="rbx rb-auras" id="btnAuras" aria-label="Auras">
+                <svg class="ic" viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M50 8 L61.5 36 L92 38.5 L68.5 58 L76 88 L50 72 L24 88 L31.5 58 L8 38.5 L38.5 36 Z" fill="#ffb31a" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M50 8 L61.5 36 L50 52 Z M8 38.5 L38.5 36 L50 52 Z M24 88 L31.5 58 L50 52 Z" fill="#ffd45a"/>
+                    <path d="M92 38.5 L68.5 58 L50 52 Z M76 88 L50 72 L50 52 Z" fill="#f08c10"/>
+                    <path d="M50 8 L61.5 36 L92 38.5 L68.5 58 L76 88 L50 72 L24 88 L31.5 58 L8 38.5 L38.5 36 Z" fill="none" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M42 30 L46 22 L46 32 Z" fill="#fff"/>
+                </svg>
+                <span class="lb o">AURAS</span>
+            </button>
+            <button class="rbx rb-free" id="btnFree" aria-label="Free rewards">
+                <svg class="ic" viewBox="0 0 100 100" aria-hidden="true">
+                    <path d="M12 46 L88 46 L88 86 Q88 90 84 90 L16 90 Q12 90 12 86 Z" fill="#ffa21c" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <path d="M14 18 Q14 12 20 12 L80 12 Q86 12 86 18 L86 46 L14 46 Z" fill="#ffa21c" stroke="#16121f" stroke-width="5" stroke-linejoin="round"/>
+                    <rect x="23" y="19" width="54" height="22" rx="2" fill="#e83a4a"/>
+                    <rect x="20" y="56" width="16" height="30" fill="#e83a4a"/><rect x="64" y="56" width="16" height="30" fill="#e83a4a"/>
+                    <path d="M41 46 L59 46 L59 62 Q50 68 41 62 Z" fill="#ffc44a" stroke="#16121f" stroke-width="4" stroke-linejoin="round"/>
+                    <circle cx="50" cy="53" r="3.5" fill="#a84a10"/><path d="M48 55 L52 55 L53 61 L47 61 Z" fill="#a84a10"/>
+                    <path d="M20 16 L28 16 L20 24 Z" fill="#fff"/>
+                </svg>
+                <span class="lb o" id="freeLb">FREE</span>
+                <span class="badge" id="freeBadge" hidden>!</span>
+            </button>
+        </div>
+
+        <!-- Our extras (not in the reference), kept out of the left column: small tiles top-right -->
+        <div id="quickRow">
+            <button class="qb rb-daily" id="btnDaily" aria-label="Daily reward" title="Daily Reward">
+                <svg viewBox="0 0 100 100" aria-hidden="true"><rect x="14" y="20" width="72" height="66" rx="8" fill="#fff" stroke="#16121f" stroke-width="6"/><path d="M14 28 Q14 20 22 20 L78 20 Q86 20 86 28 L86 40 L14 40 Z" fill="#e8304a" stroke="#16121f" stroke-width="6" stroke-linejoin="round"/><path d="M32 12 L32 28 M68 12 L68 28" stroke="#16121f" stroke-width="8" stroke-linecap="round"/><path d="M34 62 L45 72 L68 50" fill="none" stroke="#28c43c" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="badge" id="dailyBadge" hidden>!</span>
+            </button>
+            <button class="qb rb-friends" id="btnFriends" aria-label="Friends" title="Friends">
+                <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="64" cy="34" r="14" fill="#ffb8d8" stroke="#16121f" stroke-width="6"/><path d="M42 84 Q42 56 64 56 Q86 56 86 84 Z" fill="#ff6ab0" stroke="#16121f" stroke-width="6" stroke-linejoin="round"/><circle cx="36" cy="40" r="15" fill="#fff" stroke="#16121f" stroke-width="6"/><path d="M12 90 Q12 62 36 62 Q60 62 60 90 Z" fill="#3a8cff" stroke="#16121f" stroke-width="6" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="qb rb-avatar" id="btnWardrobe" aria-label="Avatar" title="Avatar">
+                <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M36 14 Q50 26 64 14 L90 28 L80 48 L72 44 L72 88 L28 88 L28 44 L20 48 L10 28 Z" fill="#46ec50" stroke="#16121f" stroke-width="6" stroke-linejoin="round"/><path d="M36 14 Q50 26 64 14" fill="none" stroke="#16121f" stroke-width="6"/><path d="M30 60 L70 60" stroke="#22a83a" stroke-width="6"/></svg>
+            </button>
+            <button class="qb rb-auto" id="btnAuto" aria-label="Auto Train" title="Auto Train: run on your best treadmill while AFK">
+                <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M14 56 Q14 44 26 44 L52 44 L60 30 L74 34 L68 52 Q82 54 86 64 Q88 74 76 74 L22 74 Q14 74 14 66 Z" fill="#3a8cff" stroke="#16121f" stroke-width="6" stroke-linejoin="round"/><path d="M14 64 L86 64" stroke="#fff" stroke-width="6"/><path d="M6 36 L26 36 M10 26 L30 26" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 74 L86 74" stroke="#16121f" stroke-width="6" stroke-linecap="round"/></svg>
+            </button>
         </div>
 
         <!-- Right: Custom Speed box and the rainbow 2X Speed pass -->
