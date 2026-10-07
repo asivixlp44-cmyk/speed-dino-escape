@@ -462,8 +462,12 @@ async function serverEndpoint() {
     let url = SERVER_URL;
     if (BLOXITY_GAME_ID) {
         const r = await BX.resolveEndpoint(BLOXITY_GAME_ID, DEV_CHANNEL ? 'preview' : undefined);
+        if (r && r.cold) $('#loading').textContent = 'Waking up a server…';
         url = (r && r.endpoint) || SERVER_URL;
     }
+    // The matchmaker hands back a wss:// room proxy (wss://play.bloxity.io/v1/ws/<room>): Colyseus
+    // joins through it directly and it has no /health, so only plain http(s) servers are polled
+    if (!/^https?:/i.test(url)) return url;
     // A scaled-to-zero server takes a while to boot: poll /health (every 2 s, up to 60 s) before joining
     if (!(await serverUp(url))) {
         $('#loading').textContent = 'Waking up a server…';
