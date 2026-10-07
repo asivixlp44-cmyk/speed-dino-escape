@@ -3,7 +3,7 @@ import {
     texFrom, billboard, textPlane, camera, signBoard,
 } from './engine.js';
 import { S, actions, net } from './state.js';
-import { studWallMaterial, dottedWallMaterial, checkerMaterial } from './textures.js';
+import { studWallMaterial, dottedWallMaterial, checkerMaterial, lavaMaterial } from './textures.js';
 import { emitTread } from './fx.js';
 import { buildDino, walkDino } from './dino.js';
 import {
@@ -15,9 +15,9 @@ const HX = LOBBY.halfX, HZ = LOBBY.halfZ;
 // Colours read off the reference: red carpet, yellow studded paths, tan dotted sandstone walls,
 // bright blocky trees, lavender checker panels, grey stone ramps
 const LC = {
-    carpet: 0xe0182a, carpetDark: 0xb8101e, path: 0xffd640, pathDark: 0xe8b820, sand: 0xc89a66, sandDark: 0xa87a4a,
-    trunk: 0x8a5a32, leaf: 0x34d04a, leafDark: 0x22a83a, grass: 0x4cd23c, dirt: 0x8a5a36, stone: 0x9a98aa, stoneDark: 0x77768a,
-    lavender: 0xbcb4f0, gold: 0xf2c230, red: 0xe8182c, brick: 0x8a5236, brickDark: 0x5a3220, clay: 0xc8705a, clayDark: 0xa85a48,
+    carpet: 0xe0182a, carpetDark: 0xb8101e, path: 0xffd640, sand: 0xc89a66, sandDark: 0xa87a4a,
+    trunk: 0x8a5a32, leaf: 0x34d04a, leafDark: 0x22a83a, grass: 0x4cd23c,
+    gold: 0xf2c230, red: 0xe8182c, brick: 0x8a5236, brickDark: 0x5a3220,
 };
 
 export const SPAWN = new V3(LOBBY.spawn.x, LOBBY.spawn.y, LOBBY.spawn.z);
@@ -139,52 +139,101 @@ function addPickup(stageIdx, x, y, z, amount) {
     const id = stageIdx + ':' + pickups.filter((p) => p.stage === stageIdx).length;
     pickups.push({ id, stage: stageIdx, g, base: y + 2.4, amount, respawnAt: 0, phase: Math.random() * 6 });
 }
-// Stage surroundings from the reference: lavender checker walls with dark-blue square windows,
-// and beyond them reddish clay cliffs with grass on top and blocky trees
+// Stage surroundings from the reference: checker walls (tinted per stage) with dark-blue square
+// windows, and beyond them rocky cliffs with grass on top and blocky trees.
+// Safe nooks: little alcoves cut into the walls where the troll balls can't reach you. They sit on
+// flat floor (terrace tops, ramp landings), alternating sides, marked with a green SAFE pad.
+const NOOK = { len: 9, depth: 6, h: 9 };
+function nookSpots(s) {
+    const out = [];
+    let lastZ = -1e9, side = 1;
+    for (const p of s.path) {
+        if (p.y0 !== p.y1 || p.z1 - p.z0 < NOOK.len + 3) continue;
+        const zc = (p.z0 + p.z1) / 2;
+        if (zc < s.zS + 30 || zc > s.cE - 10) continue;
+        if (s.type === 'Terraces' && zc - lastZ < s.safe) continue;
+        out.push({ zc, y: p.y0, sx: side });
+        side = -side; lastZ = zc;
+    }
+    return out;
+}
+function safeNook(s, n) {
+    const { zc, y, sx } = n, W = s.w, L = NOOK.len, D = NOOK.depth, H = NOOK.h, bottom = s.y0 - 46;
+    const x0 = W / 2, x1 = W / 2 + 3 + D;             // from the wall's inner face out to the back
+    const wall = studWallMaterial(s.theme.wall, 2, 2);
+    const part = (sxw, sy, sz, cx, cy, cz, m) => { texturedBox(sxw, sy, sz, cx, cy, cz, m || wall); solids.push(aabb(cx, cy, cz, sxw, sy, sz)); };
+    part(x1 - x0, y - bottom, L, sx * (x0 + x1) / 2, (y + bottom) / 2, zc, studWallMaterial(0x6c6a8a, 2, 1));
+    part(1, H, L + 2, sx * (x1 + 0.5), y + H / 2, zc);
+    for (const sz of [-1, 1]) part(x1 - x0 - 3, H, 1, sx * (x0 + 3 + (x1 - x0 - 3) / 2), y + H / 2, zc + sz * (L / 2 + 0.5));
+    part(x1 - x0 + 1, 1, L + 2, sx * (x0 + x1 + 1) / 2, y + H + 0.5, zc);
+    // Green glowing floor and a SAFE sign over the opening
+    const pad = new T.Mesh(UNIT, mat(0x46ec50, { neon: true }));
+    pad.scale.set(D + 1, 0.2, L - 1); pad.position.set(sx * (x0 + 3 + D / 2), y + 0.1, zc); scene.add(pad);
+    billboard([{ t: 'SAFE', c: '#7dff6b', s: '#16121f', px: 90 }], 5, 512, new V3(sx * (x0 + 2), y + H + 2.4, zc));
+}
 function sideWalls(s, rng) {
-    const mid = s.zS + s.len / 2, bottom = s.y0 - 46, h = s.y1 + 26;
-    const wm = checkerMaterial(LC.lavender, s.len / 8, (h - bottom) / 8);
+    const th = s.theme, bottom = s.y0 - 46, h = s.y1 + 26;
+    const nooks = nookSpots(s);
+    nooks.forEach((n) => safeNook(s, n));
     for (const sx of [-1, 1]) {
         const x = sx * (s.w / 2 + 1.5);
-        texturedBox(3, h - bottom, s.len, x, (h + bottom) / 2, mid, wm);
-        solids.push(aabb(x, (h + bottom) / 2, mid, 3, h - bottom, s.len));
-        // Windows a little above the floor line as it climbs
-        for (let z = s.zS + 10; z < s.zE - 6; z += 16) {
-            const y = s.heightAt(z) + 12;
-            deco(0.4, 6, 6, x - sx * 1.7, y, z, 0x2a3a8a);
-            deco(0.5, 2.2, 2.2, x - sx * 1.8, y, z, 0x6a8ae8);
+        const wallBox = (z0, z1, y0, y1) => {
+            if (z1 - z0 < 0.1 || y1 - y0 < 0.1) return;
+            texturedBox(3, y1 - y0, z1 - z0, x, (y0 + y1) / 2, (z0 + z1) / 2, checkerMaterial(th.wall, (z1 - z0) / 8, (y1 - y0) / 8));
+            solids.push(aabb(x, (y0 + y1) / 2, (z0 + z1) / 2, 3, y1 - y0, z1 - z0));
+        };
+        // The wall in pieces: full height between nooks, and over each nook's opening only above
+        // its roof and below its floor
+        let z = s.zS;
+        for (const n of nooks.filter((q) => q.sx === sx)) {
+            const a = n.zc - NOOK.len / 2, b = n.zc + NOOK.len / 2;
+            wallBox(z, a, bottom, h);
+            wallBox(a, b, n.y + NOOK.h, h);
+            wallBox(a, b, bottom, n.y);
+            z = b;
         }
-        // Clay cliffs outside the walls, stepping up with the course
-        for (let z = s.zS; z < s.zE; z += 18) {
-            const top = s.heightAt(z + 9) + 14 + rng() * 14, cx = sx * (s.w / 2 + 14 + rng() * 10);
-            deco(20 + rng() * 8, top - bottom, 19, cx, (top + bottom) / 2, z + 9, rng() < 0.5 ? LC.clay : LC.clayDark);
-            deco(22, 1.6, 20, cx, top + 0.8, z + 9, LC.grass);
-            if (rng() < 0.6) tree(cx + (rng() - 0.5) * 10, top + 1.6, z + 9, 1 + rng() * 0.6, rng);
+        wallBox(z, s.zE, bottom, h);
+        // Windows a little above the floor line as it climbs (not over a nook)
+        for (let wz = s.zS + 10; wz < s.zE - 6; wz += 16) {
+            if (nooks.some((n) => n.sx === sx && Math.abs(n.zc - wz) < 9)) continue;
+            const wy = s.heightAt(wz) + 12;
+            deco(0.4, 6, 6, x - sx * 1.7, wy, wz, 0x2a3a8a);
+            deco(0.5, 2.2, 2.2, x - sx * 1.8, wy, wz, 0x6a8ae8);
+        }
+        // Rocky cliffs outside the walls (kept clear of the nooks), stepping up with the course
+        for (let cz = s.zS; cz < s.zE; cz += 18) {
+            const top = s.heightAt(cz + 9) + 14 + rng() * 14, cx = sx * (s.w / 2 + 24 + rng() * 8);
+            deco(18 + rng() * 6, top - bottom, 19, cx, (top + bottom) / 2, cz + 9, rng() < 0.5 ? th.cliff : shade(th.cliff, 0.85));
+            deco(20, 1.6, 20, cx, top + 0.8, cz + 9, s.lava ? 0x4a3030 : LC.grass);
+            if (!s.lava && rng() < 0.6) tree(cx + (rng() - 0.5) * 10, top + 1.6, cz + 9, 1 + rng() * 0.6, rng);
         }
     }
 }
+const shade = (c, k) => new T.Color(c).multiplyScalar(k).getHex();
 // The "STAGE N" gate from the reference: two brown brick pillars with a see-through lavender
 // checker portal between them and the big white title above; walls close off the sides
 function stageGate(s, y, prevW) {
     const half = Math.max(prevW, s.w) / 2 + 3, D = s.door / 2, PH = 34, z = s.zS + 1;
     for (const sx of [-1, 1]) {
-        sandWall(half - D, PH + 50, 2, sx * (half + D) / 2, y + PH / 2 - 25, z, LC.lavender);
+        sandWall(half - D, PH + 50, 2, sx * (half + D) / 2, y + PH / 2 - 25, z, s.theme.wall);
         texturedBox(5, PH + 4, 5, sx * (D + 2.5), y + (PH + 4) / 2 - 2, z, dottedWallMaterial(LC.brick, 1, 6));
         solids.push(aabb(sx * (D + 2.5), y + PH / 2, z, 5, PH, 5));
         deco(6, 1.2, 6, sx * (D + 2.5), y + PH + 2.6, z, LC.brickDark);
     }
     texturedBox(D * 2 + 10, 6, 3, 0, y + PH + 3, z, dottedWallMaterial(LC.brick, 6, 1));
     // The portal: walk straight through it
-    const portal = new T.Mesh(new T.PlaneGeometry(D * 2, PH), new T.MeshLambertMaterial({ map: checkerMaterial(LC.lavender, D / 4, PH / 8).map, color: 0xd8d0ff, transparent: true, opacity: 0.35, depthWrite: false, side: T.DoubleSide }));
+    const portal = new T.Mesh(new T.PlaneGeometry(D * 2, PH), new T.MeshLambertMaterial({ map: checkerMaterial(s.theme.wall, D / 4, PH / 8).map, color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false, side: T.DoubleSide }));
     portal.position.set(0, y + PH / 2, z); scene.add(portal);
-    textPlane([{ t: s.name, c: '#ffffff', s: '#1a1f5c', px: 190 }], 34, 1024, new V3(0, y + PH - 6, s.zS - 0.4), new V3(0, y + PH - 6, s.zS - 10));
+    const title = [{ t: s.name, c: '#ffffff', s: '#1a1f5c', px: 190 }];
+    if (s.sub) title.push({ t: s.sub, c: s.subColor, s: '#1a1f5c', px: 90 });
+    textPlane(title, 34, 1024, new V3(0, y + PH - (s.sub ? 9 : 6), s.zS - 0.4), new V3(0, y + PH - (s.sub ? 9 : 6), s.zS - 10));
 }
 // Landing at the top of a stage, as in the reference: a pink "+2N Wins" pad (x2 Wins pass) on the
 // left, an orange "+N Wins" pad on the right (both send you back to the lobby), light-blue
 // chevrons down the middle pointing on to the next stage
 function landing(i, s, finish) {
     const w = s.w, y = s.y1;
-    studBox(w, y - s.y0 + 8, CFG.endZone, 0, (y + s.y0 - 8) / 2, s.cE + CFG.endZone / 2, LC.grass);
+    studBox(w, y - s.y0 + 8, CFG.endZone, 0, (y + s.y0 - 8) / 2, s.cE + CFG.endZone / 2, typeof s.theme.top === 'number' ? s.theme.top : LC.gold);
     const pz = s.cE + CFG.endZone / 2;
     const pad = (x, color, lines, enter) => {
         const m = new T.Mesh(UNIT, mat(color, { neon: true }));
@@ -588,56 +637,71 @@ function pathLookup(s) {
     };
 }
 
-// ----- Terraces (Stage 1 in the reference): wide green grass steps climbing to the top -----
-function terrace(W, len, y, z0, bottom, top) {
+// ----- Terraces: wide steps climbing to the top. Stage 1 is the reference's green grass; later
+// terrace stages change colour and add gaps, taller steps (jump them) and lava underneath -----
+const RAINBOW = [0xff3c5a, 0xff8a1e, 0xffd028, 0x46ec50, 0x28c8ff, 0x8a5aff, 0xff4ad8];
+function terrace(W, len, y, z0, bottom, top, side) {
     const zc = z0 + len / 2, depth = y - bottom;
-    texturedBox(W, depth, len, 0, y - depth / 2 - 0.4, zc, studWallMaterial(LC.dirt, W / 4, depth / 4));
-    texturedBox(W, 0.8, len, 0, y - 0.4, zc, studWallMaterial(top || LC.grass, W / 4, len / 4));
+    texturedBox(W, depth, len, 0, y - depth / 2 - 0.4, zc, studWallMaterial(side, W / 4, depth / 4));
+    texturedBox(W, 0.8, len, 0, y - 0.4, zc, studWallMaterial(top, W / 4, len / 4));
     solids.push(aabb(0, y - depth / 2, zc, W, depth, len));
 }
 function buildTerraces(i, s, rng) {
-    const W = s.w, bottom = s.y0 - 20;
+    const W = s.w, bottom = s.y0 - 20, th = s.theme, grass = i === 0;
+    const topAt = (n) => (th.top === 'rainbow' ? RAINBOW[n % RAINBOW.length] : grass && n % 5 === 4 ? LC.path : th.top);
     s.path = [];
     let z = s.zS, y = s.y0;
     // Yellow studded apron inside the gate
-    terrace(W, 18, y, z, bottom, LC.path);
+    terrace(W, 18, y, z, bottom, LC.path, th.side);
     s.path.push({ z0: z, z1: z + 18, y0: y, y1: y, x0: 0, x1: 0 });
     z += 18;
     let n = 0;
     while (z < s.cE - 16) {
         const len = 10 + Math.floor(rng() * 6);
         const gap = rng() < s.gaps ? 3 + Math.floor(rng() * 2) : 0;
-        const rise = gap ? 1.5 : s.rise > 1.5 && rng() < 0.35 ? s.rise : rng() < 0.15 ? 0 : 1.5;
+        const rise = s.rises[Math.floor(rng() * s.rises.length)];
         const z0 = z + gap, y0 = y;
         if (z0 + len > s.cE - 4) break;
-        y += rise;
-        terrace(W, len, y, z0, bottom, n % 5 === 4 ? LC.path : LC.grass);
+        y += gap ? Math.min(rise, 1.5) : rise;
+        terrace(W, len, y, z0, bottom, topAt(n), th.side);
         s.path.push({ z0: z, z1: z0 + 1.5, y0, y1: y, x0: 0, x1: 0 }, { z0: z0 + 1.5, z1: z0 + len, y0: y, y1: y, x0: 0, x1: 0 });
         if (n % 2 === 1) addPickup(i, (rng() * 2 - 1) * (W / 2 - 6), y, z0 + len / 2, s.pickup);
-        for (const sx of [-1, 1]) if (rng() < 0.5) bush(sx * (W / 2 - 3), y, z0 + 2 + rng() * (len - 4), 0.7 + rng() * 0.4);
-        if (rng() < 0.4) flowers((rng() * 2 - 1) * (W / 2 - 8), z0 + len / 2, rng);
+        if (grass) {
+            for (const sx of [-1, 1]) if (rng() < 0.5) bush(sx * (W / 2 - 3), y, z0 + 2 + rng() * (len - 4), 0.7 + rng() * 0.4);
+            if (rng() < 0.4) flowers((rng() * 2 - 1) * (W / 2 - 8), z0 + len / 2, rng);
+        } else if (th.top === 0xdff8ff && rng() < 0.5) {
+            // Ice: little crystal clusters at the edges
+            for (const sx of [-1, 1]) deco(1.2, 2 + rng() * 2, 1.2, sx * (W / 2 - 1.5), y + 1, z0 + 2 + rng() * (len - 4), 0x9fe8ff);
+        }
         z = z0 + len; n++;
     }
-    terrace(W, s.cE - z, y, z, bottom);
+    terrace(W, s.cE - z, y, z, bottom, topAt(n), th.side);
     s.path.push({ z0: z, z1: s.cE, y0: y, y1: y, x0: 0, x1: 0 });
     s.y1 = y;
+    // Lava pool filling every gap: falling in is a KO
+    if (s.lava) {
+        const len = s.cE - s.zS;
+        texturedBox(W, 1, len, 0, s.y0 - 4, s.zS + len / 2, lavaMaterial(W / 14, len / 14));
+        const k = aabb(0, s.y0 - 18, s.zS + len / 2, W, 28, len); k.active = true; kills.push(k);
+    }
 }
 
-// ----- Ramps (Stage 2 in the reference): grey stone ramps zig-zagging up between wide landings,
-// low walls on both sides, light-blue chevrons pointing up -----
+// ----- Ramps (Stage 2 in the reference): stone ramps zig-zagging up between wide landings, low
+// walls on both sides, light-blue chevrons pointing up. Later ramp stages are narrower and steeper -----
 function buildRamps(i, s, rng) {
-    const W = s.w, PW = 18, side = W / 2 - PW / 2 - 1, bottom = s.y0 - 20;
+    const W = s.w, PW = s.pw, side = W / 2 - PW / 2 - 1, bottom = s.y0 - 20, th = s.theme;
+    const railOpts = th.glow ? { neon: true } : { studs: true };
     s.path = [];
     let z = s.zS, y = s.y0, x = side;
     const slab = (w, len, cx, top) => {
-        studBox(w, top - bottom, len, cx, (top + bottom) / 2, z + len / 2, LC.stone);
+        studBox(w, top - bottom, len, cx, (top + bottom) / 2, z + len / 2, th.top);
     };
-    // Landing across the full width where the path turns
+    const rail = (sx, sy, sz, cx, cy, cz) => { box(sx, sy, sz, cx, cy, cz, th.rail, railOpts); };
     // Low wall across one end of a landing, open only where a ramp joins it (open = ramp centre x)
     const edgeWall = (zc, open) => {
         const a = open - PW / 2, b = open + PW / 2;
-        if (a > -W / 2) studBox(a + W / 2, 2.2, 1.2, (a - W / 2) / 2, y + 1.1, zc, LC.stoneDark);
-        if (b < W / 2) studBox(W / 2 - b, 2.2, 1.2, (b + W / 2) / 2, y + 1.1, zc, LC.stoneDark);
+        if (a > -W / 2) rail(a + W / 2, 2.2, 1.2, (a - W / 2) / 2, y + 1.1, zc);
+        if (b < W / 2) rail(W / 2 - b, 2.2, 1.2, (b + W / 2) / 2, y + 1.1, zc);
     };
     // Landing across the full width where the path turns. Between two ramps its ends are walled
     // except for the ramp openings, so nobody can drop off beside a ramp.
@@ -652,11 +716,11 @@ function buildRamps(i, s, rng) {
         const z0 = z, y0 = y, rise = 0.9 * s.climb;
         for (let k = 0; k < n; k++) { y += rise; slab(PW, 2.4, x, y); z += 2.4; }
         for (const sx of [-1, 1]) {
-            const wall = box(1.2, 1.8, n * 2.4 + 0.4, x + sx * (PW / 2 - 0.6), (y0 + y) / 2 + 0.9, z0 + n * 1.2, LC.stoneDark, { decor: true, studs: true });
-            wall.rotation.x = -Math.atan2(y - y0, n * 2.4); wall.updateMatrix();
+            const m = box(1.2, 1.8, n * 2.4 + 0.4, x + sx * (PW / 2 - 0.6), (y0 + y) / 2 + 0.9, z0 + n * 1.2, th.rail, { decor: true, ...railOpts });
+            m.rotation.x = -Math.atan2(y - y0, n * 2.4); m.updateMatrix();
             solids.push(aabb(x + sx * (PW / 2 - 0.6), (y0 + y) / 2 + 0.9, z0 + n * 1.2, 1.2, y - y0 + 2.2, n * 2.4));
         }
-        for (let k = 1; k < n; k += 4) chevron(x, y0 + (y - y0) * (k / n) + 0.15, z0 + k * 2.4, 0x7fe0ff);
+        for (let k = 1; k < n; k += 4) chevron(x, y0 + (y - y0) * (k / n) + 0.15, z0 + k * 2.4, th.glow ? 0xff8af0 : 0x7fe0ff);
         s.path.push({ z0, z1: z, y0, y1: y, x0: x, x1: x });
     };
     // First landing: open behind (the gate), walled ahead except the first ramp
@@ -711,7 +775,7 @@ export const balls = []; // one pool per stage: { s, idx, meshes: [...] }
 function buildBalls(idx, s) {
     const b = s.balls, travel = (s.cE - ballEnd(s)) / b.speed + 0.5;
     const pool = { s, idx, meshes: [] };
-    for (let n = 0; n < Math.ceil(travel / b.every) + 1; n++) {
+    for (let n = 0; n < (Math.ceil(travel / b.every) + 1) * (b.double ? 2 : 1); n++) {
         const g = new T.Group();
         const body = new T.Mesh(BALL_GEO, ballBodyMat); body.castShadow = true; g.add(body);
         const face = new T.Mesh(BALL_GEO, ballFaceMat); face.scale.setScalar(1.01); g.add(face);
@@ -765,7 +829,7 @@ function buildCourse() {
         tr.enter = () => actions.enterStage(idx);
         triggers.push(tr);
         if (finish) {
-            texturedBox(s.w + 6, 90, 2, 0, s.y1 + 30, s.zE + 1, checkerMaterial(LC.lavender, 9, 15));
+            texturedBox(s.w + 6, 90, 2, 0, s.y1 + 30, s.zE + 1, checkerMaterial(s.theme.wall, 9, 15));
             solids.push(aabb(0, s.y1 + 30, s.zE + 1, s.w + 6, 90, 2));
             textPlane([{ t: 'YOU ESCAPED!', c: '#ffd028', s: '#16121f', px: 150 }, { t: 'More stages coming soon', c: '#ffffff', s: '#16121f', px: 70 }], 34, 1024, new V3(0, s.y1 + 22, s.zE - 0.2), new V3(0, s.y1 + 22, s.zE - 20));
             const tz = s.zE - 6, ty = s.y1;

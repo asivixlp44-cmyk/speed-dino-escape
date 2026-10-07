@@ -53,13 +53,31 @@ export const LOBBY = { halfX: 85, halfZ: 70, wallHeight: 30, spawn: { x: 0, y: 0
 // Giant troll-face balls roll down every stage from the top (cE) to the bottom (zS) on the
 // server clock: one every `every` s at `speed` studs/s, radius r, in a random lane.
 // w = stage width, door = opening in the "STAGE N" gate at its start.
+// Every stage has its own look (theme) and gets harder: more gaps, higher steps, narrower paths,
+// faster and more frequent balls; Stage 6 sends two balls down at once.
+//   rises: step heights picked at random (3 = has to be jumped); gaps: chance of a gap to jump;
+//   lava: lava under the steps; pw: ramp width; climb: ramp steepness; safe: studs between safe nooks
+// theme: wall = checker wall tint, top / side = floor colours (top 'rainbow' cycles colours),
+//        rail = ramp wall colour (neon when glow), cliff = rock outside, sky = window colour
 export const STAGES = [
-    { name: 'STAGE 1', type: 'Terraces', len: 300, w: 44, door: 40, pickup: 1, wins: 1, gaps: 0, rise: 1.5, balls: { every: 7, speed: 20, r: 5.5 } },
-    { name: 'STAGE 2', type: 'Ramps', len: 360, w: 48, door: 36, pickup: 1, wins: 2, climb: 1, balls: { every: 5.5, speed: 24, r: 6 } },
-    { name: 'STAGE 3', type: 'Terraces', len: 320, w: 44, door: 36, pickup: 1, wins: 5, gaps: 0.3, rise: 3, balls: { every: 5, speed: 26, r: 6 } },
-    { name: 'STAGE 4', type: 'Ramps', len: 380, w: 48, door: 36, pickup: 1, wins: 15, climb: 1.4, balls: { every: 4.2, speed: 28, r: 6.5 } },
-    { name: 'STAGE 5', type: 'Terraces', len: 340, w: 44, door: 36, pickup: 1, wins: 40, gaps: 0.45, rise: 3, balls: { every: 3.6, speed: 30, r: 6.5 } },
-    { name: 'STAGE 6', type: 'Ramps', len: 420, w: 48, door: 36, pickup: 1, wins: 100, climb: 1.8, balls: { every: 3, speed: 33, r: 7.5 } },
+    { name: 'STAGE 1', type: 'Terraces', len: 300, w: 44, door: 40, pickup: 1, wins: 1,
+        rises: [1.5, 1.5, 1.5, 0], gaps: 0, safe: 60, balls: { every: 7, speed: 20, r: 5.5 },
+        theme: { wall: 0xbcb4f0, top: 0x4cd23c, side: 0x8a5a36, cliff: 0xc8705a } },
+    { name: 'STAGE 2', type: 'Ramps', len: 360, w: 48, door: 36, pickup: 1, wins: 2,
+        pw: 18, climb: 1, balls: { every: 5.5, speed: 24, r: 6 },
+        theme: { wall: 0xbcb4f0, top: 0x9a98aa, rail: 0x77768a, cliff: 0xc8705a } },
+    { name: 'STAGE 3', sub: 'LAVA STEPS', subColor: '#ff8a1e', type: 'Terraces', len: 320, w: 40, door: 34, pickup: 1, wins: 5,
+        rises: [1.5, 1.5, 0], gaps: 0.4, lava: true, safe: 55, balls: { every: 5, speed: 26, r: 6 },
+        theme: { wall: 0xffc8a0, top: 0xe8b060, side: 0x8a4a2a, cliff: 0x6a3a2a } },
+    { name: 'STAGE 4', sub: 'ICE CLIMB', subColor: '#6fe0ff', type: 'Terraces', len: 330, w: 40, door: 34, pickup: 1, wins: 15,
+        rises: [3, 3, 2.5], gaps: 0.15, safe: 55, balls: { every: 4.5, speed: 28, r: 6.5 },
+        theme: { wall: 0xc8e8ff, top: 0xdff8ff, side: 0x5aa8e0, cliff: 0x8ab8d8 } },
+    { name: 'STAGE 5', sub: 'NEON ZIGZAG', subColor: '#ff6ef0', type: 'Ramps', len: 380, w: 44, door: 32, pickup: 1, wins: 40,
+        pw: 12, climb: 1.4, balls: { every: 3.8, speed: 30, r: 5.5 },
+        theme: { wall: 0x9a7ae8, top: 0x3a3450, rail: 0xff3ce0, glow: true, cliff: 0x2a2440 } },
+    { name: 'STAGE 6', sub: 'RAINBOW FINALE', subColor: '#ffd028', type: 'Terraces', len: 360, w: 34, door: 30, pickup: 1, wins: 100,
+        rises: [1.5, 3, 3], gaps: 0.5, safe: 50, balls: { every: 3.2, speed: 33, r: 6, double: true },
+        theme: { wall: 0xffc8ec, top: 'rainbow', side: 0xd8a020, cliff: 0xa86ad8 } },
 ];
 {
     let z = 70;
@@ -188,8 +206,10 @@ export const ballEnd = (s) => s.zS + s.balls.r + 4;
 export function ballSchedule(s, t) {
     const b = s.balls, travel = (s.cE - ballEnd(s)) / b.speed + 0.5, out = [];
     for (let k = Math.floor((t - travel) / b.every) + 1; k <= Math.floor(t / b.every); k++) {
-        const h = Math.imul(k ^ 0x5bd1e995, 2654435761) >>> 0;
-        out.push({ k, age: t - k * b.every, lane: (h % 3) - 1 });
+        const h = Math.imul(k ^ 0x5bd1e995, 2654435761) >>> 0, lane = h % 3;
+        out.push({ k: k * 2, age: t - k * b.every, lane: lane - 1 });
+        // Two balls side by side: one of the other two lanes, leaving a single gap to dodge into
+        if (b.double) out.push({ k: k * 2 + 1, age: t - k * b.every, lane: ((lane + 1 + ((h >> 5) & 1)) % 3) - 1 });
     }
     return out;
 }

@@ -33,9 +33,14 @@ For development, run `npm run dev:server` and `npm run dev:client` in two termin
   - Right: the **TREADMILLS**, glowing strips with a gem spinning above ("Get Speed While Offline!"): three x1, x3, x9 (pass) and x25 (pass). Leave the game on a treadmill and it keeps earning: on your next visit you get a quarter of the Speed it would have made, for up to 8 hours.
   - Also: TOP WINS / TOP SPEED boards, the "Keep playing" hut (free x2 Speed Boost after 15 minutes), the Fossil Chest (free Speed and Wins once a day), the Baby T-Rex egg (hatches after 20 minutes of play), +Speed and +Wins pads, and an Update poster.
 - **Course**, six stages, as in the reference: the red carpet runs through the see-through checker portal of the **STAGE 1** gate (brown brick pillars), and the course keeps climbing from there. Lavender checker walls with dark-blue windows, red clay cliffs and trees outside.
-  1. STAGE 1: wide green grass terraces stepping up.
-  2. STAGE 2: grey stone ramps zig-zagging up between wide landings, low walls, light-blue chevrons.
-  3-6: the same two looks again, longer and steeper, with gaps to jump on the terraces.
+  1. STAGE 1: wide green grass terraces stepping up (as in the reference).
+  2. STAGE 2: grey stone ramps zig-zagging up between wide landings, low walls, light-blue chevrons (as in the reference).
+  3. LAVA STEPS: orange sandstone steps with gaps to jump over a lava pool.
+  4. ICE CLIMB: icy steps too tall to walk up: every one has to be jumped.
+  5. NEON ZIGZAG: narrow, steeper ramps with glowing pink rails.
+  6. RAINBOW FINALE: a narrow rainbow staircase with gaps and tall steps, and the balls come two at a time.
+  Each stage is harder than the last: balls get faster, bigger and more frequent.
+- **Safe nooks**: little alcoves cut into the walls with a green SAFE floor. Duck into one and the balls roll past without touching you. They sit on flat floor (terrace tops, every ramp landing) on alternating sides.
 - **Troll balls**: giant dark balls with a grinning troll face and fire coming out of the mouth roll down every stage from the top, on the server clock (everyone sees the same balls). On the terraces they come down one of three lanes, so you dodge sideways; on the ramps they fill the path, so you wait on a landing for one to pass. A red screen edge and "TROLL BALL 20m AHEAD!" warn you. Balls that reach the bottom smash just inside the gate; they never roll out of their stage. Ramp landings are walled at both ends except where a ramp joins, so nobody can drop off beside a ramp.
 - **Race event** ("Race starting in 20s! JOIN"): every 5 minutes. Everyone who joins is lined up at the STAGE 1 gate for a 3-2-1-GO; the first to touch the Stage 1 Wins pad wins +5 Wins.
 - Blue sneakers on the course give +1 Speed. Each stage ends on a landing at its top with an orange "+N Wins" pad (+1 / +2 / +5 / +15 / +40 / +100) and a pink "+2N Wins" pad for the x2 Wins pass; both send you back to the lobby.
