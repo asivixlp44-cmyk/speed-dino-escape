@@ -8,7 +8,7 @@ import { emitTread } from './fx.js';
 import { buildDino, walkDino } from './dino.js';
 import {
     CFG, LOBBY, STAGES, TREADMILLS, TREAD_GEO, PASSES, DINOS, EGG_MINUTES, FREE_BOOST_MINUTES,
-    dinoById, fmt, sci, clock, rngFrom, buxText, ballSchedule,
+    dinoById, fmt, sci, clock, rngFrom, buxText, ballSchedule, ballEnd,
 } from '../../shared/config.js';
 
 const HX = LOBBY.halfX, HZ = LOBBY.halfZ;
@@ -633,9 +633,17 @@ function buildRamps(i, s, rng) {
         studBox(w, top - bottom, len, cx, (top + bottom) / 2, z + len / 2, LC.stone);
     };
     // Landing across the full width where the path turns
-    const flat = (len, toX) => {
+    // Low wall across one end of a landing, open only where a ramp joins it (open = ramp centre x)
+    const edgeWall = (zc, open) => {
+        const a = open - PW / 2, b = open + PW / 2;
+        if (a > -W / 2) studBox(a + W / 2, 2.2, 1.2, (a - W / 2) / 2, y + 1.1, zc, LC.stoneDark);
+        if (b < W / 2) studBox(W / 2 - b, 2.2, 1.2, (b + W / 2) / 2, y + 1.1, zc, LC.stoneDark);
+    };
+    // Landing across the full width where the path turns. Between two ramps its ends are walled
+    // except for the ramp openings, so nobody can drop off beside a ramp.
+    const flat = (len, toX, walled) => {
         slab(W, len, 0, y);
-        for (const sx of [-1, 1]) if (rng() < 0.6) deco(1.2, 1.4, len - 2, sx * (W / 2 - 1), y + 0.7, z + len / 2, LC.stoneDark);
+        if (walled) { edgeWall(z + 0.6, x); edgeWall(z + len - 0.6, toX); }
         s.path.push({ z0: z, z1: z + len, y0: y, y1: y, x0: x, x1: toX });
         z += len; x = toX;
     };
@@ -651,14 +659,17 @@ function buildRamps(i, s, rng) {
         for (let k = 1; k < n; k += 4) chevron(x, y0 + (y - y0) * (k / n) + 0.15, z0 + k * 2.4, 0x7fe0ff);
         s.path.push({ z0, z1: z, y0, y1: y, x0: x, x1: x });
     };
+    // First landing: open behind (the gate), walled ahead except the first ramp
     flat(16, side);
-    let k = 0;
-    while (z < s.cE - 50) {
+    edgeWall(z - 0.6, side);
+    for (let k = 0; ; k++) {
         ramp(10 + Math.floor(rng() * 5));
         if (k % 2 === 0) addPickup(i, x, y, z - 6, s.pickup);
-        flat(14, -x);
-        k++;
+        if (z >= s.cE - 50) break;
+        flat(14, -x, true);
     }
+    // Last landing runs on into the Wins landing: walled behind except the last ramp
+    edgeWall(z + 0.6, x);
     flat(s.cE - z, 0);
     s.y1 = y;
 }
@@ -698,7 +709,7 @@ const ballBodyMat = new T.MeshLambertMaterial({ color: 0x24222e, map: studWallMa
 const ballFaceMat = new T.MeshBasicMaterial({ map: ballFaceTex, transparent: true, alphaTest: 0.05, depthWrite: false, toneMapped: false });
 export const balls = []; // one pool per stage: { s, idx, meshes: [...] }
 function buildBalls(idx, s) {
-    const b = s.balls, travel = (s.cE - s.zS + 30) / b.speed;
+    const b = s.balls, travel = (s.cE - ballEnd(s)) / b.speed + 0.5;
     const pool = { s, idx, meshes: [] };
     for (let n = 0; n < Math.ceil(travel / b.every) + 1; n++) {
         const g = new T.Group();
@@ -720,12 +731,13 @@ export function updateBalls(t, camZ, onCrash) {
         pool.meshes.forEach((m, n) => {
             const e = list[n];
             if (!e) { m.g.visible = false; m.k = null; return; }
-            const z = s.cE - e.age * b.speed;
+            // Rolls down to just inside the gate and smashes there (never out into the stage below)
+            const end = ballEnd(s), z = Math.max(end, s.cE - e.age * b.speed);
             const lane = e.lane * Math.min(10, s.w / 2 - b.r - 2);
             // On the ramps the balls keep to the floor's centre line; on the terraces they use lanes
             const x = s.type === 'Ramps' ? s.xAt(z) : lane;
-            const y = (z < s.zS ? (pool.idx === 0 ? 0 : STAGES[pool.idx - 1].y1) : s.heightAt(z)) + b.r;
-            const crashed = z < s.zS - 24;
+            const y = s.heightAt(z) + b.r;
+            const crashed = s.cE - e.age * b.speed <= end;
             if (crashed && m.k === e.k && !m.crashed && onCrash) onCrash(m);
             m.crashed = crashed;
             m.k = e.k; m.x = x; m.y = y; m.z = z;

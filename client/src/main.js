@@ -21,7 +21,7 @@ import {
     refreshModal, promptEl, promptTxtEl, showGoal, animateCounters, showOffline, openDailyOnJoin, trollBanner, showRace, raceCountdown,
 } from './ui.js';
 import {
-    CFG, STAGES, TREADMILLS, TREAD_GEO, dinoById, auraById, KITS, SKINS, STARTER_DINO, maxSpeedFor, fmt, clamp,
+    CFG, STAGES, TREADMILLS, TREAD_GEO, dinoById, auraById, KITS, SKINS, STARTER_DINO, maxSpeedFor, stageAt, fmt, clamp,
 } from '../../shared/config.js';
 
 // =====================================================================================
@@ -161,6 +161,7 @@ function walkSpeed() {
     let s = S.customSpeed > 0 && S.customSpeed <= max ? S.customSpeed : max;
     if (P.sprinting) s *= CFG.sprintMult;
     if (clockT < P.slowUntil) s *= 0.5;
+    if (qaWalk) s = qaWalk;
     return s;
 }
 
@@ -794,6 +795,7 @@ promptEl.addEventListener('click', usePrompt);
 // =====================================================================================
 // Dev-only test input (the QA hook drives it); always zero in a real game
 const botInput = { f: 0, r: 0, jump: false, sprint: false };
+let qaWalk = 0; // dev QA walk-speed override
 let clockT = 0, hudT = 0, online = 1;
 const tmpF = new V3(), tmpR = new V3(), mv = new V3();
 const trail = makeTrail(0xbfefff), trailAt = new V3();
@@ -864,7 +866,10 @@ function update(dt) {
         else if (P.moving) P.facing = lerpAngle(P.facing, Math.atan2(mv.x, mv.z), 1 - Math.exp(-dt * 14));
 
         if (P.shield > 0) P.shield -= dt;
-        if (P.pos.y < (P.stage >= 0 ? STAGES[P.stage].y0 : 0) + CFG.voidY) { P.shield = 0; die(); }
+        // Falling: measured from the floor of the stage you are actually standing in
+        const here = stageAt(P.pos.z);
+        if (here >= 0 && here < P.stage) P.stage = here; // walked back down into an earlier stage
+        if (P.pos.y < (here >= 0 ? STAGES[here].y0 : 0) + CFG.voidY) { P.shield = 0; die(); }
         for (const k of kills) {
             if (!k.active) continue;
             if (k.max.x > P.pos.x - HW + 0.2 && k.min.x < P.pos.x + HW - 0.2 && k.max.y > P.pos.y + 0.1 && k.min.y < P.pos.y + PH && k.max.z > P.pos.z - HW + 0.2 && k.min.z < P.pos.z + HW - 0.2) { die(); break; }
@@ -1121,7 +1126,7 @@ if (import.meta.env.DEV) {
         hazards: () => ({
             balls: balls.flatMap((p) => p.meshes.filter((m) => m.g.visible).map((m) => [p.idx, Math.round(m.x), Math.round(m.y), Math.round(m.z)])),
         }),
-        buildDino, dinoById, net, buy, applyTroll, deaths: () => deaths,
+        buildDino, dinoById, net, buy, applyTroll, deaths: () => deaths, walk: (n) => { qaWalk = n; },
         look: (yaw, pitch, dist) => { cam.yaw = yaw; cam.pitch = pitch; cam.dist = dist; },
         state: () => ({ x: P.pos.x, y: P.pos.y, z: P.pos.z, dead: P.dead, stage: P.stage, wins: S.wins, level: S.level, speed: S.speed, aura: S.aura, equipped: S.equipped, rebirths: S.rebirths }),
     };

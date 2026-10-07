@@ -180,10 +180,13 @@ export const dinoById = Object.fromEntries(DINOS.map((d) => [d.id, d]));
 export const STARTER_DINO = 'Raptor';
 // The giant chaser (Stage 3) and the Dino King (Stage 6): dark rex with a fiery mouth
 
+// Where a troll ball smashes: just inside its stage's gate, so it never leaves the stage
+export const ballEnd = (s) => s.zS + s.balls.r + 4;
 // Troll balls rolling down a stage at server time t (seconds): ball k leaves the top at
-// k * every and rolls `age` seconds; lane is -1, 0 or 1 (left, middle, right)
+// k * every and rolls `age` seconds (plus half a second lying smashed at the bottom);
+// lane is -1, 0 or 1 (left, middle, right)
 export function ballSchedule(s, t) {
-    const b = s.balls, travel = (s.cE - s.zS + 30) / b.speed, out = [];
+    const b = s.balls, travel = (s.cE - ballEnd(s)) / b.speed + 0.5, out = [];
     for (let k = Math.floor((t - travel) / b.every) + 1; k <= Math.floor(t / b.every); k++) {
         const h = Math.imul(k ^ 0x5bd1e995, 2654435761) >>> 0;
         out.push({ k, age: t - k * b.every, lane: (h % 3) - 1 });
