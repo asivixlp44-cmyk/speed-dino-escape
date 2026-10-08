@@ -224,6 +224,25 @@ export const AURAS = [
 ];
 export const auraById = Object.fromEntries(AURAS.map((a) => [a.id, a]));
 
+// Quests: one goal at a time in the pill under the Troll Menu, so a new player always knows what
+// to do next. value(p) reads the player's profile; reached when value >= need. The server checks
+// and pays the reward. target: where the guide arrow points ('stage1', or a dino id in the shop).
+export const QUESTS = [
+    { text: 'Walk around to gain Speed!', need: 25, value: (p) => p.speed, reward: { speed: 50 } },
+    { text: 'Climb STAGE 1 and touch the Wins pad!', need: 1, value: (p) => p.wins, reward: { speed: 150 }, target: 'stage1' },
+    { text: 'Get 3 Wins for Bonk Pachy', need: 3, value: (p) => p.wins, reward: { speed: 300 }, target: 'stage1' },
+    { text: 'Ride Bonk Pachy from the DINO SHOP', need: 1, value: (p) => (p.owned.Pachy ? 1 : 0), reward: { wins: 2 }, target: 'Pachy' },
+    { text: 'Hide in a SAFE nook when a ball comes!', need: 10, value: (p) => p.wins, reward: { speed: 2000 }, target: 'stage1' },
+    { text: 'Get 20 Wins for the Stegosaurus', need: 20, value: (p) => p.wins, reward: { speed: 5000 }, target: 'stage1' },
+    { text: 'Ride the Stegosaurus', need: 1, value: (p) => (p.owned.Stego ? 1 : 0), reward: { wins: 10 }, target: 'Stego' },
+    { text: 'Reach Level 10', need: 10, value: (p) => p.level, reward: { wins: 15 } },
+    { text: 'Get 100 Wins for the Triceratops', need: 100, value: (p) => p.wins, reward: { speed: 50000 }, target: 'stage1' },
+    { text: 'Ride the Triceratops', need: 1, value: (p) => (p.owned.Trike ? 1 : 0), reward: { wins: 50 }, target: 'Trike' },
+    { text: 'Reach Level 25 and Rebirth!', need: 1, value: (p) => p.rebirths, reward: { wins: 100 } },
+];
+// A free revive (instead of paying Bux) once every this many minutes
+export const FREE_REVIVE_MINUTES = 5;
+
 // Session playtime rewards (minutes since joining)
 export const FREE = [
     { min: 2, speed: 500 }, { min: 5, wins: 2 }, { min: 10, speed: 5000 },

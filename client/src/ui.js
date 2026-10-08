@@ -4,7 +4,7 @@ import * as BX from './bloxity.js';
 import { sfx, getVolumes, setVolume } from './audio.js';
 import { QUALITIES, getQuality, setQuality } from './fx.js';
 import {
-    CFG, STAGES, PRODUCTS, PASSES, TROLLS, OFFERS, AURAS, FREE, DAILY, dailyStatus, rewardText, xpFor, maxSpeedFor, fmt, clock, clamp,
+    CFG, STAGES, PRODUCTS, PASSES, TROLLS, OFFERS, AURAS, FREE, DAILY, QUESTS, FREE_REVIVE_MINUTES, dailyStatus, rewardText, xpFor, maxSpeedFor, fmt, clock, clamp,
 } from '../../shared/config.js';
 
 // Bux coin + amount (our own strings only; never user text)
@@ -60,7 +60,15 @@ export function updateHud(P, online) {
     el.boost.hidden = boostLeft <= 0;
     if (boostLeft > 0) el.boost.textContent = '⚡ x' + CFG.boostMult + ' SPEED BOOST ' + clock(boostLeft);
     const mins = (net.now() - S.joinedAt) / 60000;
-    el.freeBadge.hidden = !FREE.some((r, i) => mins >= r.min && !S.freeClaimed[i]);
+    // FREE gifts ready to claim: badge, pulse, and a nudge each time a new one unlocks
+    const ready = FREE.filter((r, i) => mins >= r.min && !S.freeClaimed[i]).length;
+    el.freeBadge.hidden = !ready;
+    $('#btnFree').classList.toggle('ready', ready > 0);
+    if (ready > giftsReady && net.room) { toast('🎁 FREE gift ready! Tap FREE to claim', '#7dff6b'); sfx('buy'); }
+    giftsReady = ready;
+    updateQuest();
+    // The Daily Reward pops up a minute in, once the player is back in the lobby with nothing open
+    if (dailyDueAt && net.now() >= dailyDueAt && P.stage < 0 && !P.dead && $('#modal').hidden && $('#revive').hidden) { dailyDueAt = 0; openDaily(); }
     const daily = dailyStatus(S.daily, net.now());
     el.dailyBadge.hidden = !daily.can;
     updateOffer();
@@ -70,7 +78,22 @@ export function updateHud(P, online) {
 }
 
 // Rotating offer at the top of the screen
-let offerIdx = 0, offerT = 0, offerDismissed = false;
+let offerIdx = 0, offerT = 0, offerDismissed = false, giftsReady = 0;
+
+// ----- quest pill: the one next goal; the server pays the reward once it's reached -----
+let questIdx = -1, questSent = 0;
+export const currentQuest = () => QUESTS[S.quest || 0] || null;
+function updateQuest() {
+    const q = currentQuest(), box = $('#quest');
+    if (!q || !net.room) { box.hidden = true; return; }
+    const v = q.value(S), done = v >= q.need;
+    if (questIdx !== (S.quest || 0)) { questIdx = S.quest || 0; box.classList.remove('new'); void box.offsetWidth; box.classList.add('new'); }
+    box.hidden = false;
+    box.classList.toggle('done', done);
+    $('#questText').textContent = q.text;
+    $('#questProg').textContent = done ? '✅' : q.need > 1 ? fmt(Math.min(v, q.need)) + '/' + fmt(q.need) : '';
+    if (done && net.now() - questSent > 1500) { questSent = net.now(); net.send('quest'); }
+}
 function updateOffer() {
     const packLeft = CFG.starterPackDuration - (net.now() - S.firstPlay) / 1000;
     const list = OFFERS.filter((o) => (o.key !== 'StarterPack' || (packLeft > 0 && !S.claimedPack)) && !(o.kind === 'pass' && S.passes[o.key]));
@@ -208,8 +231,13 @@ $('#btn2x').addEventListener('click', () => buy('pass', 'DoubleSpeed'));
 document.querySelectorAll('[data-product]').forEach((b) => b.addEventListener('click', () => buy('product', b.dataset.product)));
 
 // ----- revive popup: "You were caught! You reached Stage N!" -----
-let reviveTimer;
+// One free revive every FREE_REVIVE_MINUTES; otherwise it costs Bux
+let reviveTimer, freeReviveAt = 0, reviveIsFree = false;
 export function showRevive(stage) {
+    reviveIsFree = net.now() >= freeReviveAt;
+    $('#reviveYes').classList.toggle('free', reviveIsFree);
+    $('#reviveYes').textContent = reviveIsFree ? 'FREE REVIVE' : 'REVIVE';
+    $('#revivePrice').hidden = reviveIsFree;
     setHtml($('#revivePrice'), 'ONLY ' + bux(PRODUCTS.Revive.price));
     const s = STAGES[stage];
     $('#reviveReached').textContent = s ? 'You reached Stage ' + (stage + 1) + '!' : 'You fell!';
@@ -227,7 +255,11 @@ export function hideRevive() {
     clearInterval(reviveTimer);
     $('#revive').hidden = true;
 }
-$('#reviveYes').addEventListener('click', () => { hideRevive(); buy('product', 'Revive'); });
+$('#reviveYes').addEventListener('click', () => {
+    hideRevive();
+    if (reviveIsFree) { freeReviveAt = net.now() + FREE_REVIVE_MINUTES * 60000; actions.revive(true); toast('Free revive! Next one in ' + FREE_REVIVE_MINUTES + ' min', '#7dff6b'); }
+    else buy('product', 'Revive');
+});
 $('#reviveNo').addEventListener('click', () => actions.revive(false));
 
 // ----- panels -----
@@ -364,11 +396,12 @@ function renderModal() {
 }
 // ----- Daily Reward popup (seven cards, a day track, CLAIM REWARD, time left) -----
 // Opens by itself once per session when a reward is waiting, like the reference
-let dailyAuto = false;
+// Not straight away at join (a new player should start playing first): a minute in, in the lobby
+let dailyAuto = false, dailyDueAt = 0;
 export function openDailyOnJoin() {
     if (dailyAuto || !S.daily || !net.room) return;
     dailyAuto = true;
-    if (dailyStatus(S.daily, net.now()).can) setTimeout(openDaily, 1200);
+    if (dailyStatus(S.daily, net.now()).can) dailyDueAt = net.now() + 60000;
 }
 function openDaily() { renderDaily(true); $('#daily').hidden = false; }
 $('#dailyClose').addEventListener('click', () => { $('#daily').hidden = true; });

@@ -59,7 +59,7 @@ export function defaultProfile(uid, name) {
         speed: 0, wins: 0, level: 0, xp: 0, rebirths: 0,
         owned: { Raptor: true }, equipped: 'Raptor', daily: {},
         auras: {}, aura: '', passes: {},
-        boostUntil: 0, customSpeed: 0, claimedPack: false, chestAt: 0,
+        boostUntil: 0, customSpeed: 0, claimedPack: false, chestAt: 0, quest: 0,
         firstPlay: Date.now(),
     };
 }

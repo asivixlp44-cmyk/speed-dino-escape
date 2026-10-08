@@ -117,7 +117,7 @@ export function lavaMaterial(rx, ry) {
     const id = 'lavaMat' + Math.round(rx) + 'x' + Math.round(ry);
     if (cache.has(id)) return cache.get(id);
     const m = new T.MeshBasicMaterial({ map: repeated(lavaImg, 'lava', rx, ry) });
-    animated.push(m.map);
+    animated.push(m.map); m.userData.animated = true;
     cache.set(id, m);
     return m;
 }
@@ -134,7 +134,7 @@ export function waterMaterial(rx, ry) {
     const id = 'waterMat' + Math.round(rx) + 'x' + Math.round(ry);
     if (cache.has(id)) return cache.get(id);
     const m = new T.MeshLambertMaterial({ map: repeated(waterImg, 'water', rx, ry) });
-    waterAnimated.push(m.map);
+    waterAnimated.push(m.map); m.userData.animated = true;
     cache.set(id, m);
     return m;
 }

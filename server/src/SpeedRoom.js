@@ -7,7 +7,7 @@ import {
 import { sealProfile, openSave } from './saves.js';
 import { verifyBloxityToken, BUX_MODE } from './bloxity.js';
 import {
-    CFG, LOBBY, STAGES, PRODUCTS, PASSES, DINOS, dinoById, AURAS, auraById, FREE, DAILY, KITS, SKINS,
+    CFG, LOBBY, STAGES, PRODUCTS, PASSES, DINOS, dinoById, AURAS, auraById, FREE, DAILY, QUESTS, KITS, SKINS,
     GROUP_CHEST, EGG_MINUTES, FREE_BOOST_MINUTES,
     xpFor, maxSpeedFor, speedMult, treadmillAt, stageAt, dailyStatus, dayKey, rewardText, fmt, clamp,
 } from '../../shared/config.js';
@@ -57,6 +57,7 @@ export class SpeedRoom extends Room {
         this.onMessage('chat', (client, m) => this.onChat(client, m));
         this.onMessage('friends', (client, m) => this.onFriends(client, m));
         this.onMessage('raceJoin', (client) => this.onRaceJoin(client));
+        this.onMessage('quest', (client) => this.onQuest(client));
 
         this.setSimulationInterval((dt) => this.tick(dt), 100);
         this.clock.setInterval(() => this.broadcastBoards(), 10000);
@@ -164,7 +165,7 @@ export class SpeedRoom extends Room {
             owned: p.owned, equipped: p.equipped, auras: p.auras, aura: p.aura, passes: p.passes,
             boostUntil: p.boostUntil, customSpeed: p.customSpeed, claimedPack: p.claimedPack,
             firstPlay: p.firstPlay, freeClaimed: s.freeClaimed, joinedAt: s.joinedAt, daily: p.daily,
-            chestAt: p.chestAt, freeBoost: !!s.freeBoost, save: sealProfile(p),
+            chestAt: p.chestAt, freeBoost: !!s.freeBoost, quest: p.quest || 0, save: sealProfile(p),
         });
     }
     toast(s, text, color) { s.client.send('toast', { text, color }); }
@@ -420,6 +421,20 @@ export class SpeedRoom extends Room {
         s.freeClaimed[i] = true;
         if (r.speed) this.addSpeed(s, r.speed, false); else this.addWins(s, r.wins, false);
         this.toast(s, 'Claimed ' + (r.speed ? '+' + fmt(r.speed) + ' Speed' : '+' + r.wins + ' Wins') + '!', GREEN);
+        client.send('fx', { kind: 'confetti' });
+        this.changed(client.sessionId);
+    }
+
+    // The current quest is done: pay its reward and move on to the next one
+    onQuest(client) {
+        const s = this.sessions.get(client.sessionId);
+        if (!s) return;
+        const p = s.profile, i = p.quest || 0, q = QUESTS[i];
+        if (!q || q.value(p) < q.need || !this.cooldown(s, 'quest', 0.5)) return;
+        p.quest = i + 1;
+        if (q.reward.speed) this.addSpeed(s, q.reward.speed, false);
+        if (q.reward.wins) this.addWins(s, q.reward.wins, false);
+        this.toast(s, 'Quest complete! ' + rewardText(q.reward), GOLD);
         client.send('fx', { kind: 'confetti' });
         this.changed(client.sessionId);
     }

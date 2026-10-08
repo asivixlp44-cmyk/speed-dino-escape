@@ -6,6 +6,11 @@ import { S, actions, net } from './state.js';
 import { studWallMaterial, dottedWallMaterial, checkerMaterial, lavaMaterial } from './textures.js';
 import { emitTread } from './fx.js';
 import { buildDino, walkDino } from './dino.js';
+import { mergeStatic, bakeGroup } from './merge.js';
+// Freeze a mesh that never moves again, so static batching can merge it
+const still = (m) => { m.updateMatrix(); m.matrixAutoUpdate = false; return m; };
+// Models whose parts never move relative to each other; baked once the world is built
+const bakeLater = [];
 import {
     CFG, LOBBY, STAGES, TREADMILLS, TREAD_GEO, PASSES, DINOS, EGG_MINUTES, FREE_BOOST_MINUTES,
     dinoById, fmt, sci, clock, rngFrom, buxText, ballSchedule, ballEnd,
@@ -22,6 +27,8 @@ const LC = {
 
 export const SPAWN = new V3(LOBBY.spawn.x, LOBBY.spawn.y, LOBBY.spawn.z);
 export const pickups = [];
+// Where each shop dino stands (the quest guide arrow points at them)
+export const pedestalPos = {};
 export let beltTex;
 const shopItems = [];
 const treadItems = [];
@@ -134,7 +141,7 @@ function addPickup(stageIdx, x, y, z, amount) {
     const toe = new T.Mesh(UNIT, mat(0xffffff)); toe.scale.set(1.62, 0.5, 0.6); toe.position.set(0, 0, 1.2); g.add(toe);
     const lace = new T.Mesh(UNIT, mat(0x9fe0ff)); lace.scale.set(1.2, 0.2, 1.2); lace.position.set(0, 0.85, 0.1); g.add(lace);
     g.position.set(x, y + 2.4, z);
-    scene.add(g);
+    scene.add(bakeGroup(g));
     billboard([{ t: '+' + amount + ' Speed', c: '#2a8cff', s: '#ffffff', px: 64 }], 4.2, 512, new V3(x, y + 0.9, z));
     const id = stageIdx + ':' + pickups.filter((p) => p.stage === stageIdx).length;
     pickups.push({ id, stage: stageIdx, g, base: y + 2.4, amount, respawnAt: 0, phase: Math.random() * 6 });
@@ -168,7 +175,7 @@ function safeNook(s, n) {
     part(x1 - x0 + 1, 1, L + 2, sx * (x0 + x1 + 1) / 2, y + H + 0.5, zc);
     // Green glowing floor and a SAFE sign over the opening
     const pad = new T.Mesh(UNIT, mat(0x46ec50, { neon: true }));
-    pad.scale.set(D + 1, 0.2, L - 1); pad.position.set(sx * (x0 + 3 + D / 2), y + 0.1, zc); scene.add(pad);
+    pad.scale.set(D + 1, 0.2, L - 1); pad.position.set(sx * (x0 + 3 + D / 2), y + 0.1, zc); scene.add(still(pad));
     billboard([{ t: 'SAFE', c: '#7dff6b', s: '#16121f', px: 90 }], 5, 512, new V3(sx * (x0 + 2), y + H + 2.4, zc));
 }
 function sideWalls(s, rng) {
@@ -237,8 +244,8 @@ function landing(i, s, finish) {
     const pz = s.cE + CFG.endZone / 2;
     const pad = (x, color, lines, enter) => {
         const m = new T.Mesh(UNIT, mat(color, { neon: true }));
-        m.scale.set(10, 0.4, 6); m.position.set(x, y + 0.2, pz); m.rotation.y = x > 0 ? 0.3 : -0.3; scene.add(m);
-        const rim = new T.Mesh(UNIT, mat(0x16121f)); rim.scale.set(10.8, 0.3, 6.8); rim.position.set(x, y + 0.1, pz); rim.rotation.y = m.rotation.y; scene.add(rim);
+        m.scale.set(10, 0.4, 6); m.position.set(x, y + 0.2, pz); m.rotation.y = x > 0 ? 0.3 : -0.3; scene.add(still(m));
+        const rim = new T.Mesh(UNIT, mat(0x16121f)); rim.scale.set(10.8, 0.3, 6.8); rim.position.set(x, y + 0.1, pz); rim.rotation.y = m.rotation.y; scene.add(still(rim));
         billboard(lines, 8, 512, new V3(x, y + 4.5, pz));
         const tr = aabb(x, y + 2.5, pz, 10, 5, 7);
         tr.enter = enter;
@@ -255,7 +262,7 @@ function chevron(x, y, z, color) {
     for (const s of [-1, 1]) {
         const m = new T.Mesh(UNIT, mat(color));
         m.scale.set(6, 0.08, 1.4); m.position.set(x + s * 2.1, y, z); m.rotation.y = s * 0.6;
-        scene.add(m);
+        scene.add(still(m));
     }
 }
 // Flat board whose canvas can be redrawn (hut sign, leaderboards)
@@ -288,7 +295,7 @@ function gradientBanner(text, colors, w, pos, face, sub) {
 // Round pad that opens a purchase when stepped on (+10K SPEED, +500 WINS ...)
 function buyPad(x, z, color, lines, kind, key) {
     const pad = new T.Mesh(new T.CylinderGeometry(2.6, 2.6, 0.3, 28), mat(color, { neon: true }));
-    pad.position.set(x, 0.15, z); scene.add(pad);
+    pad.position.set(x, 0.15, z); scene.add(still(pad));
     billboard(lines, 7, 512, new V3(x, 4, z));
     const tr = aabb(x, 2, z, 5, 4, 5);
     tr.enter = () => actions.buy(kind, key);
@@ -301,7 +308,7 @@ function buyPad(x, z, color, lines, kind, key) {
 // Black thorny crack splat flat on the floor
 const SPLAT_MAT = new T.MeshBasicMaterial({ color: 0x16121f });
 function splat(x, z, s, rng) {
-    const g = new T.Group(); g.position.set(x, 0.08, z); g.rotation.y = rng() * Math.PI; scene.add(g);
+    const g = new T.Group(); g.position.set(x, 0.08, z); g.rotation.y = rng() * Math.PI; scene.add(g); bakeLater.push(g);
     const core = new T.Mesh(UNIT, SPLAT_MAT); core.scale.set(2.4 * s, 0.04, 2.4 * s); core.rotation.y = 0.4; g.add(core);
     for (let k = 0; k < 7; k++) {
         const a = k / 7 * Math.PI * 2 + rng() * 0.4, len = (3 + rng() * 3) * s;
@@ -312,7 +319,7 @@ function splat(x, z, s, rng) {
 }
 // Fossil Chest: a wooden chest strapped with bones on a little sand mound
 function fossilChest(pos) {
-    const g = new T.Group(); g.position.copy(pos); g.rotation.y = Math.PI / 2 + 0.3; scene.add(g);
+    const g = new T.Group(); g.position.copy(pos); g.rotation.y = Math.PI / 2 + 0.3; scene.add(g); bakeLater.push(g);
     const part = (sx, sy, sz, x, y, z, c, o) => { const m = new T.Mesh(UNIT, mat(c, o)); m.scale.set(sx, sy, sz); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
     part(11, 1, 9, 0, 0.5, 0, 0xe8c890);
     part(8, 5, 6, 0, 3.5, 0, 0x9a6a2a);
@@ -331,12 +338,12 @@ function fossilChest(pos) {
 // Nest with the Baby T-Rex egg (free after playing a while); the egg wobbles when it's ready
 function eggNest(pos) {
     const pad = new T.Mesh(new T.CylinderGeometry(6, 6, 0.4, 6), mat(0xff3cc8, { neon: true }));
-    pad.position.set(pos.x, 0.2, pos.z); scene.add(pad);
+    pad.position.set(pos.x, 0.2, pos.z); scene.add(still(pad));
     for (let i = 0; i < 10; i++) {
         const a = i / 10 * Math.PI * 2;
-        const st = new T.Mesh(UNIT, mat(i % 2 ? 0xc89a50 : 0xa87a3a)); st.scale.set(3, 0.7, 0.8); st.position.set(pos.x + Math.cos(a) * 3.2, 0.8, pos.z + Math.sin(a) * 3.2); st.rotation.y = -a; scene.add(st);
+        const st = new T.Mesh(UNIT, mat(i % 2 ? 0xc89a50 : 0xa87a3a)); st.scale.set(3, 0.7, 0.8); st.position.set(pos.x + Math.cos(a) * 3.2, 0.8, pos.z + Math.sin(a) * 3.2); st.rotation.y = -a; scene.add(still(st));
     }
-    const egg = new T.Group(); egg.position.set(pos.x, 0.6, pos.z); scene.add(egg);
+    const egg = new T.Group(); egg.position.set(pos.x, 0.6, pos.z); scene.add(egg); bakeLater.push(egg);
     const e1 = new T.Mesh(UNIT, mat(0xfff4dc)); e1.scale.set(2.6, 3.2, 2.6); e1.position.y = 1.8; egg.add(e1);
     const e2 = new T.Mesh(UNIT, mat(0xfff4dc)); e2.scale.set(1.8, 1, 1.8); e2.position.y = 3.8; egg.add(e2);
     for (let i = 0; i < 6; i++) { const sp = new T.Mesh(UNIT, mat(0x46c83c)); sp.scale.set(0.6, 0.6, 0.1); sp.position.set(((i * 7) % 5 - 2) * 0.4, 1 + (i % 3) * 0.8, 1.31); egg.add(sp); }
@@ -399,7 +406,7 @@ export function updateLobbySigns() {
 
 // TOP WINS / TOP SPEED: dark screen in a gold frame with a big icon on top, like the reference
 function leaderboard(pos, title, icon, face) {
-    const g = new T.Group(); g.position.copy(pos); g.rotation.y = Math.atan2(face.x, face.z); scene.add(g);
+    const g = new T.Group(); g.position.copy(pos); g.rotation.y = Math.atan2(face.x, face.z); scene.add(g); bakeLater.push(g);
     const part = (sx, sy, sz, x, y, z, c, o) => { const m = new T.Mesh(UNIT, mat(c, o)); m.scale.set(sx, sy, sz); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
     part(17, 2, 4, 0, 1, 0, LC.sandDark);
     part(16, 24, 1.6, 0, 14, 0, 0x2a2a44);
@@ -462,14 +469,17 @@ function buildPedestal(d, pos, face) {
     const glow = d.glow || 0xff2a3a;
     box(7, 0.4, 7, pos.x, pos.y + 0.2, pos.z, d.glow ? glow : LC.red, { neon: !!d.glow, decor: true });
     box(7.6, 0.25, 7.6, pos.x, pos.y + 0.12, pos.z, 0x16121f, { decor: true });
+    pedestalPos[d.id] = pos.clone();
     const dino = buildDino(d);
     dino.position.set(pos.x, pos.y + 0.4, pos.z);
     dino.rotation.y = face;
-    scene.add(dino);
-    const at = new V3(pos.x, pos.y + 1, pos.z);
-    tickers.push((dt) => {
+    scene.add(bakeGroup(dino));
+    // Baked into 1-2 meshes, so it breathes and sways as a whole instead of walking in place
+    const at = new V3(pos.x, pos.y + 1, pos.z), ph = Math.random() * 6, by = dino.position.y;
+    tickers.push((dt, t) => {
         if (camera.position.distanceToSquared(at) > 140 * 140) return;
-        walkDino(dino, dt, false);
+        dino.rotation.y = face + Math.sin(t * 0.8 + ph) * 0.12;
+        dino.position.y = by + Math.abs(Math.sin(t * 1.6 + ph)) * 0.25;
     });
     const top = (d.size || 1) * (d.shape === 'brachio' ? 12 : 8);
     const sp = billboard(pedestalLines(d), 12, 512, new V3(pos.x, pos.y + top + 4, pos.z));
@@ -847,4 +857,7 @@ export function buildWorld() {
     buildCourse();
     flushDecor();
     refreshShop();
+    // Thousands of static boxes -> a few hundred draw calls
+    for (const g of bakeLater) bakeGroup(g);
+    console.info('[world] static batching', JSON.stringify(mergeStatic(scene)));
 }

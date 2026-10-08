@@ -1,6 +1,6 @@
 import { Client } from '@colyseus/sdk';
 import {
-    T, V3, $, canvas, renderer, scene, camera, sun, solids, kills, triggers, prompts, tickers,
+    T, V3, $, canvas, renderer, scene, camera, sun, solids, kills, triggers, prompts, tickers, mat,
     billboard, buildRig, ridePose, buildAuraFx, updateAuraFx, burst, confettiAt,
     floatText, updateEffects, lerpAngle,
 } from './engine.js';
@@ -14,11 +14,11 @@ import { pad, pollGamepad, rumble, onGamepadConnection } from './gamepad.js';
 import { render, setSpeedLines, updateFx, dust, sparkleColumn, ring, fireworks, setQuality, flame, leaves, makeTrail } from './fx.js';
 import {
     buildWorld, SPAWN, pickups, beltTex, refreshShop, renderBoards, treadLocked, updateLobbySigns,
-    balls, updateBalls,
+    balls, updateBalls, pedestalPos,
 } from './world.js';
 import {
     updateHud, toast, levelUp, showStageTitle, buy, showRevive, hideRevive, closeModal, openModal,
-    refreshModal, promptEl, promptTxtEl, showGoal, animateCounters, showOffline, openDailyOnJoin, trollBanner, showRace, raceCountdown,
+    refreshModal, promptEl, promptTxtEl, showGoal, animateCounters, showOffline, openDailyOnJoin, trollBanner, showRace, raceCountdown, currentQuest,
 } from './ui.js';
 import {
     CFG, STAGES, TREADMILLS, TREAD_GEO, dinoById, auraById, KITS, SKINS, STARTER_DINO, maxSpeedFor, stageAt, fmt, clamp,
@@ -289,6 +289,37 @@ actions.shop = (d) => {
     if (!S.owned[d.id] && S.wins < d.req) { toast('Need ' + fmt(d.req - S.wins) + ' more Wins!', '#ff5a5a'); return; }
     net.send('shop', { id: d.id });
 };
+
+// ----- quest guide arrow: a big bouncing yellow arrow over where the current quest happens -----
+const guide = (() => {
+    const g = new T.Group();
+    const m = mat(0xffd028, { neon: true });
+    const head = new T.Mesh(new T.ConeGeometry(2.2, 3.2, 4), m); head.rotation.x = Math.PI; head.position.y = 1.6; g.add(head);
+    const shaft = new T.Mesh(new T.BoxGeometry(1.4, 3, 1.4), m); shaft.position.y = 4.6; g.add(shaft);
+    g.visible = false; scene.add(g);
+    return g;
+})();
+const guideAt = new V3();
+function updateGuide(dt, t) {
+    const q = currentQuest();
+    let ok = !!(q && q.target && !P.dead);
+    if (ok) {
+        if (q.target === 'stage1') {
+            const s = STAGES[0];
+            // From the lobby: over the STAGE 1 gate. On the stage: over its Wins pad at the top.
+            if (P.stage === 0) guideAt.set(-s.w / 2 + 7, s.y1 + 6, s.cE + CFG.endZone / 2);
+            else if (P.stage < 0) guideAt.set(0, 8, s.zS - 6);
+            else ok = false;
+        } else if (pedestalPos[q.target]) guideAt.copy(pedestalPos[q.target]).add(new V3(0, 13, 0));
+        else ok = false;
+    }
+    // Hidden once you're standing at it
+    if (ok && Math.hypot(guideAt.x - P.pos.x, guideAt.z - P.pos.z) < 6) ok = false;
+    guide.visible = ok;
+    if (!ok) return;
+    guide.position.set(guideAt.x, guideAt.y + Math.abs(Math.sin(t * 3)) * 1.6, guideAt.z);
+    guide.rotation.y += dt * 2;
+}
 
 // Race start: everyone who joined lines up in front of the Stage 1 gate, frozen for a
 // 3-2-1 countdown, then GO (the server pays the first to touch the Stage 1 Wins pad)
@@ -910,6 +941,7 @@ function update(dt) {
 
     if (S.name && S.name !== nameLabelText) { nameLabelText = S.name; headLabel.userData.set([{ t: S.name, c: '#ffffff', s: '#16121f', px: 64 }]); }
     updateBallHits(dt);
+    updateGuide(dt, t);
     updateEffects(dt);
     updateFx(dt);
     updateMaterials(dt);
@@ -1099,7 +1131,9 @@ async function boot() {
     BX.loadingStep('Loading fonts…');
     try { await Promise.race([document.fonts.load('700 40px Fredoka'), new Promise((r) => setTimeout(r, 2500))]); } catch (e) { /* fallback font */ }
     BX.loadingStep('Growing the jungle…');
+    performance.mark('world-start');
     buildWorld();
+    performance.mark('world-end');
     loadBase().catch(() => {}); // warm up the Bloxity body model
     wirePortalSettings();
     wirePortalEvents();
@@ -1124,7 +1158,7 @@ boot();
 if (import.meta.env.DEV) {
     window.__qa = {
         input: (o) => Object.assign(botInput, o), solids, cam,
-        P, S, STAGES, avatarStats, scene,
+        P, S, STAGES, avatarStats, scene, renderer,
         teleport: (x, y, z) => teleport(new V3(x, y, z), 0),
         enter: (i) => actions.enterStage(i),
         hazards: () => ({

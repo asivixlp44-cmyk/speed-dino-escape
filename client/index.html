@@ -382,7 +382,7 @@ body.touch #tips { bottom: calc(env(safe-area-inset-bottom, 0px) + 16rem); }
 #speedBuys .sh { font-size: 1.5rem; transform: rotate(-20deg); }
 
 /* Level up: "Level Up! (0->1)" in yellow, "New walking speed: 16->17" under it */
-#levelBanner { top: 10%; display: grid; justify-items: center; gap: 0.1rem; font-size: inherit; opacity: 0; background: linear-gradient(90deg, transparent, rgba(22, 18, 31, 0.55) 20%, rgba(22, 18, 31, 0.55) 80%, transparent); padding: 0.3rem 4rem; }
+#levelBanner { top: 15%; display: grid; justify-items: center; gap: 0.1rem; font-size: inherit; opacity: 0; background: linear-gradient(90deg, transparent, rgba(22, 18, 31, 0.55) 20%, rgba(22, 18, 31, 0.55) 80%, transparent); padding: 0.3rem 4rem; }
 #levelBanner .a { font-size: 2rem; font-weight: 700; color: var(--yellow); }
 #levelBanner .b { font-size: 1.6rem; font-weight: 700; color: #fff; }
 #trollBanner { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); pointer-events: none; }
@@ -404,6 +404,21 @@ body.touch #tips { bottom: calc(env(safe-area-inset-bottom, 0px) + 16rem); }
 .card .gain { font-size: 2.4rem; font-weight: 700; color: var(--green); }
 .card > .btn { font-size: 1.5rem; padding: 0.4rem 1.6rem; }
 .overlay:not([hidden]) .card, .overlay:not([hidden]) .daily-pop { animation: popIn 0.34s cubic-bezier(0.2, 1.5, 0.4, 1); }
+
+/* Quest pill under the Troll Menu: the one next goal, with its progress */
+#quest { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 4.6rem); transform: translateX(-50%); display: flex; align-items: center; gap: 0.5rem; max-width: min(34rem, 70vw);
+    background: rgba(22, 18, 31, 0.72); border: 2px solid rgba(255, 255, 255, 0.35); border-radius: 2rem; padding: 0.25rem 0.9rem 0.25rem 0.4rem; font-weight: 700; white-space: nowrap; }
+#quest .qi { font-size: 1.3rem; }
+#quest .qt { font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; }
+#quest .qp { font-size: 1rem; color: var(--yellow); font-variant-numeric: tabular-nums; }
+#quest.done { border-color: var(--green); background: rgba(40, 140, 60, 0.75); animation: questPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
+#quest.new { animation: questPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes questPop { from { transform: translateX(-50%) scale(0.6); opacity: 0; } }
+@media (max-width: 700px), (max-height: 460px) { #quest { top: calc(env(safe-area-inset-top, 0px) + 3.4rem); } #quest .qt { font-size: 0.85rem; } }
+/* FREE gift ready: the button pulses */
+.rbx.ready { animation: readyPulse 1.2s ease-in-out infinite; }
+@keyframes readyPulse { 50% { transform: scale(1.1); filter: brightness(1.15); } }
+#reviveYes.free { background: linear-gradient(#7dff6b, #22c73a); }
 
 /* Race card and start countdown */
 .race-card { position: absolute; left: 50%; top: 56%; transform: translate(-50%, -50%); width: min(17rem, 70vw); gap: 0.5rem; padding: 0.9rem 1rem 0.9rem; animation: popIn 0.34s cubic-bezier(0.2, 1.5, 0.4, 1); }
@@ -471,6 +486,7 @@ body.touch #speedBuys .btn { font-size: 1.1rem; }
     <div id="hud" hidden>
 
         <!-- Top centre: the reference's purple "Troll Menu!" pill -->
+        <div id="quest" class="passive" hidden><span class="qi" aria-hidden="true">🎯</span><span class="qt o1" id="questText"></span><span class="qp o1" id="questProg"></span></div>
         <button class="btn o" id="btnTroll"><span class="devil" aria-hidden="true">😈</span><span>Troll Menu!</span></button>
 
         <div id="stats" class="passive">
